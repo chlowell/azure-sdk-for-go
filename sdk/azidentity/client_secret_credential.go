@@ -26,6 +26,8 @@ type ClientSecretCredentialOptions struct {
 	AdditionallyAllowedTenants []string
 	// DisableInstanceDiscovery allows disconnected cloud solutions to skip instance discovery for unknown authority hosts.
 	DisableInstanceDiscovery bool
+	// TokenCachePersistenceOptions
+	TokenCachePersistenceOptions *TokenCachePersistenceOptions
 }
 
 // ClientSecretCredential authenticates an application with a client secret.
@@ -43,7 +45,15 @@ func NewClientSecretCredential(tenantID string, clientID string, clientSecret st
 	if err != nil {
 		return nil, err
 	}
-	c, err := getConfidentialClient(clientID, tenantID, cred, &options.ClientOptions, confidential.WithInstanceDiscovery(!options.DisableInstanceDiscovery))
+	o := []confidential.Option{
+		confidential.WithInstanceDiscovery(!options.DisableInstanceDiscovery),
+	}
+	if cache, err := loadPersistentCache(options.TokenCachePersistenceOptions); err == nil {
+		o = append(o, confidential.WithCache(cache))
+	} else {
+		return nil, err
+	}
+	c, err := getConfidentialClient(clientID, tenantID, cred, &options.ClientOptions, o...)
 	if err != nil {
 		return nil, err
 	}

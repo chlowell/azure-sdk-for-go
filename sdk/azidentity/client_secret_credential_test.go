@@ -8,10 +8,12 @@ package azidentity
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
+	azlog "github.com/Azure/azure-sdk-for-go/sdk/azcore/log"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/recording"
 )
@@ -97,5 +99,37 @@ func TestClientSecretCredential_InvalidSecretLive(t *testing.T) {
 	}
 	if !strings.HasPrefix(err.Error(), credNameSecret) {
 		t.Fatal("missing credential type prefix")
+	}
+}
+
+func TestCache(t *testing.T) {
+	azlog.SetListener(func(event azlog.Event, s string) {
+		if event == azlog.EventRequest || event == EventAuthentication {
+			fmt.Println(s)
+		}
+	})
+	cred, err := NewClientSecretCredential(
+		"",
+		"",
+		"",
+		&ClientSecretCredentialOptions{
+			TokenCachePersistenceOptions: &TokenCachePersistenceOptions{},
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, err := cred.GetToken(context.Background(), policy.TokenRequestOptions{Scopes: []string{liveTestScope}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tk.Token) == 0 {
+		t.Fatal("no token")
+	}
+	tk2, err := cred.GetToken(context.Background(), policy.TokenRequestOptions{Scopes: []string{liveTestScope}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tk.Token != tk2.Token {
+		t.Fatal("expected a cached token")
 	}
 }
