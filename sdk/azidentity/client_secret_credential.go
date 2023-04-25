@@ -11,6 +11,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity/internal"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/confidential"
 )
 
@@ -30,6 +31,8 @@ type ClientSecretCredentialOptions struct {
 	// this to true will skip this request, making the application responsible for ensuring the configured
 	// authority is valid and trustworthy.
 	DisableAuthorityValidationAndInstanceDiscovery bool
+
+	TokenCacheOptions TokenCachePersistenceOptions
 }
 
 // ClientSecretCredential authenticates an application with a client secret.
@@ -47,8 +50,12 @@ func NewClientSecretCredential(tenantID string, clientID string, clientSecret st
 	if err != nil {
 		return nil, err
 	}
+	cache, err := internal.NewCache(options.TokenCacheOptions)
+	if err != nil {
+		return nil, err
+	}
 	c, err := getConfidentialClient(
-		clientID, tenantID, cred, &options.ClientOptions, confidential.WithInstanceDiscovery(!options.DisableAuthorityValidationAndInstanceDiscovery),
+		clientID, tenantID, cred, &options.ClientOptions, confidential.WithInstanceDiscovery(!options.DisableAuthorityValidationAndInstanceDiscovery), confidential.WithCache(cache),
 	)
 	if err != nil {
 		return nil, err
