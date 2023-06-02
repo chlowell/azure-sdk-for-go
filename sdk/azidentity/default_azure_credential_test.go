@@ -81,11 +81,11 @@ func TestDefaultAzureCredential_ConstructorErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
-	defer cancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 	_, err = cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{liveTestScope}})
 	if err == nil {
-		t.Fatal("expected an error")
+		t.Fatal("expected an error because the Context is canceled")
 	}
 	// these credentials' constructors returned errors because their configuration is absent;
 	// those errors should be represented in the error returned by DefaultAzureCredential.GetToken()
