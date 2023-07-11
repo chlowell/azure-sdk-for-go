@@ -36,6 +36,8 @@ type DefaultAzureCredentialOptions struct {
 	DisableInstanceDiscovery bool
 	// TenantID sets the default tenant for authentication via the Azure CLI and workload identity.
 	TenantID string
+	// TokenCachePersistenceOptions enables persistent token caching when not nil.
+	TokenCachePersistenceOptions *TokenCachePersistenceOptions
 }
 
 // DefaultAzureCredential is a default credential chain for applications that will deploy to Azure.
@@ -73,9 +75,10 @@ func NewDefaultAzureCredential(options *DefaultAzureCredentialOptions) (*Default
 	}
 
 	envCred, err := NewEnvironmentCredential(&EnvironmentCredentialOptions{
-		ClientOptions:              options.ClientOptions,
-		DisableInstanceDiscovery:   options.DisableInstanceDiscovery,
-		additionallyAllowedTenants: additionalTenants,
+		ClientOptions:                options.ClientOptions,
+		DisableInstanceDiscovery:     options.DisableInstanceDiscovery,
+		TokenCachePersistenceOptions: options.TokenCachePersistenceOptions,
+		additionallyAllowedTenants:   additionalTenants,
 	})
 	if err == nil {
 		creds = append(creds, envCred)
@@ -85,10 +88,11 @@ func NewDefaultAzureCredential(options *DefaultAzureCredentialOptions) (*Default
 	}
 
 	wic, err := NewWorkloadIdentityCredential(&WorkloadIdentityCredentialOptions{
-		AdditionallyAllowedTenants: additionalTenants,
-		ClientOptions:              options.ClientOptions,
-		DisableInstanceDiscovery:   options.DisableInstanceDiscovery,
-		TenantID:                   options.TenantID,
+		AdditionallyAllowedTenants:   additionalTenants,
+		ClientOptions:                options.ClientOptions,
+		DisableInstanceDiscovery:     options.DisableInstanceDiscovery,
+		TenantID:                     options.TenantID,
+		TokenCachePersistenceOptions: options.TokenCachePersistenceOptions,
 	})
 	if err == nil {
 		creds = append(creds, wic)
@@ -96,8 +100,7 @@ func NewDefaultAzureCredential(options *DefaultAzureCredentialOptions) (*Default
 		errorMessages = append(errorMessages, credNameWorkloadIdentity+": "+err.Error())
 		creds = append(creds, &defaultCredentialErrorReporter{credType: credNameWorkloadIdentity, err: err})
 	}
-
-	o := &ManagedIdentityCredentialOptions{ClientOptions: options.ClientOptions}
+	o := &ManagedIdentityCredentialOptions{ClientOptions: options.ClientOptions, TokenCachePersistenceOptions: options.TokenCachePersistenceOptions}
 	if ID, ok := os.LookupEnv(azureClientID); ok {
 		o.ID = ClientID(ID)
 	}

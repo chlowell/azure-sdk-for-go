@@ -35,7 +35,8 @@ type DeviceCodeCredentialOptions struct {
 	// "organizations" tenant, which can authenticate work and school accounts. Required for single-tenant
 	// applications.
 	TenantID string
-
+	// TokenCachePersistenceOptions enables persistent token caching when not nil.
+	TokenCachePersistenceOptions *TokenCachePersistenceOptions
 	// UserPrompt controls how the credential presents authentication instructions. The credential calls
 	// this function with authentication details when it receives a device code. By default, the credential
 	// prints these details to stdout.
@@ -84,10 +85,11 @@ func NewDeviceCodeCredential(options *DeviceCodeCredentialOptions) (*DeviceCodeC
 	}
 	cp.init()
 	msalOpts := publicClientOptions{
-		AdditionallyAllowedTenants: cp.AdditionallyAllowedTenants,
-		ClientOptions:              cp.ClientOptions,
-		DeviceCodePrompt:           cp.UserPrompt,
-		DisableInstanceDiscovery:   cp.DisableInstanceDiscovery,
+		AdditionallyAllowedTenants:   cp.AdditionallyAllowedTenants,
+		ClientOptions:                cp.ClientOptions,
+		DeviceCodePrompt:             cp.UserPrompt,
+		DisableInstanceDiscovery:     cp.DisableInstanceDiscovery,
+		TokenCachePersistenceOptions: cp.TokenCachePersistenceOptions,
 	}
 	c, err := newPublicClient(cp.TenantID, cp.ClientID, credNameDeviceCode, msalOpts)
 	if err != nil {

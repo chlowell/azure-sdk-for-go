@@ -29,6 +29,10 @@ type EnvironmentCredentialOptions struct {
 	// from https://login.microsoft.com before authenticating. Setting this to true will skip this request, making
 	// the application responsible for ensuring the configured authority is valid and trustworthy.
 	DisableInstanceDiscovery bool
+
+	// TokenCachePersistenceOptions enables persistent token caching when not nil.
+	TokenCachePersistenceOptions *TokenCachePersistenceOptions
+
 	// additionallyAllowedTenants is used only by NewDefaultAzureCredential() to enable that constructor's explicit
 	// option to override the value of AZURE_ADDITIONALLY_ALLOWED_TENANTS. Applications using EnvironmentCredential
 	// directly should set that variable instead. This field should remain unexported to preserve this credential's
@@ -99,9 +103,10 @@ func NewEnvironmentCredential(options *EnvironmentCredentialOptions) (*Environme
 	if clientSecret := os.Getenv(azureClientSecret); clientSecret != "" {
 		log.Write(EventAuthentication, "EnvironmentCredential will authenticate with ClientSecretCredential")
 		o := &ClientSecretCredentialOptions{
-			AdditionallyAllowedTenants: additionalTenants,
-			ClientOptions:              options.ClientOptions,
-			DisableInstanceDiscovery:   options.DisableInstanceDiscovery,
+			AdditionallyAllowedTenants:   additionalTenants,
+			ClientOptions:                options.ClientOptions,
+			DisableInstanceDiscovery:     options.DisableInstanceDiscovery,
+			TokenCachePersistenceOptions: options.TokenCachePersistenceOptions,
 		}
 		cred, err := NewClientSecretCredential(tenantID, clientID, clientSecret, o)
 		if err != nil {
@@ -124,9 +129,10 @@ func NewEnvironmentCredential(options *EnvironmentCredentialOptions) (*Environme
 			return nil, fmt.Errorf(`failed to load certificate from "%s": %v`, certPath, err)
 		}
 		o := &ClientCertificateCredentialOptions{
-			AdditionallyAllowedTenants: additionalTenants,
-			ClientOptions:              options.ClientOptions,
-			DisableInstanceDiscovery:   options.DisableInstanceDiscovery,
+			AdditionallyAllowedTenants:   additionalTenants,
+			ClientOptions:                options.ClientOptions,
+			DisableInstanceDiscovery:     options.DisableInstanceDiscovery,
+			TokenCachePersistenceOptions: options.TokenCachePersistenceOptions,
 		}
 		if v, ok := os.LookupEnv(envVarSendCertChain); ok {
 			o.SendCertificateChain = v == "1" || strings.ToLower(v) == "true"
@@ -141,9 +147,10 @@ func NewEnvironmentCredential(options *EnvironmentCredentialOptions) (*Environme
 		if password := os.Getenv(azurePassword); password != "" {
 			log.Write(EventAuthentication, "EnvironmentCredential will authenticate with UsernamePasswordCredential")
 			o := &UsernamePasswordCredentialOptions{
-				AdditionallyAllowedTenants: additionalTenants,
-				ClientOptions:              options.ClientOptions,
-				DisableInstanceDiscovery:   options.DisableInstanceDiscovery,
+				AdditionallyAllowedTenants:   additionalTenants,
+				ClientOptions:                options.ClientOptions,
+				DisableInstanceDiscovery:     options.DisableInstanceDiscovery,
+				TokenCachePersistenceOptions: options.TokenCachePersistenceOptions,
 			}
 			cred, err := NewUsernamePasswordCredential(tenantID, clientID, username, password, o)
 			if err != nil {

@@ -22,11 +22,12 @@ import (
 type publicClientOptions struct {
 	azcore.ClientOptions
 
-	AdditionallyAllowedTenants []string
-	DeviceCodePrompt           func(context.Context, DeviceCodeMessage) error
-	DisableInstanceDiscovery   bool
-	LoginHint, RedirectURL     string
-	Username, Password         string
+	AdditionallyAllowedTenants   []string
+	DeviceCodePrompt             func(context.Context, DeviceCodeMessage) error
+	DisableInstanceDiscovery     bool
+	LoginHint, RedirectURL       string
+	TokenCachePersistenceOptions *TokenCachePersistenceOptions
+	Username, Password           string
 }
 
 // publicClient wraps the MSAL public client

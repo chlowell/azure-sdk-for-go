@@ -38,16 +38,23 @@ type WorkloadIdentityCredentialOptions struct {
 	// Add the wildcard value "*" to allow the credential to acquire tokens for any tenant in which the
 	// application is registered.
 	AdditionallyAllowedTenants []string
+
 	// ClientID of the service principal. Defaults to the value of the environment variable AZURE_CLIENT_ID.
 	ClientID string
+
 	// DisableInstanceDiscovery should be set true only by applications authenticating in disconnected clouds, or
 	// private clouds such as Azure Stack. It determines whether the credential requests Azure AD instance metadata
 	// from https://login.microsoft.com before authenticating. Setting this to true will skip this request, making
 	// the application responsible for ensuring the configured authority is valid and trustworthy.
 	DisableInstanceDiscovery bool
+
 	// TenantID of the service principal. Defaults to the value of the environment variable AZURE_TENANT_ID.
 	TenantID string
-	// TokenFilePath is the path of a file containing a Kubernetes service account token. Defaults to the value of the
+
+	// TokenCachePersistenceOptions enables persistent token caching when not nil.
+	TokenCachePersistenceOptions *TokenCachePersistenceOptions
+
+	// TokenFilePath is the path a file containing the workload identity token. Defaults to the value of the
 	// environment variable AZURE_FEDERATED_TOKEN_FILE.
 	TokenFilePath string
 }
@@ -79,9 +86,10 @@ func NewWorkloadIdentityCredential(options *WorkloadIdentityCredentialOptions) (
 	}
 	w := WorkloadIdentityCredential{file: file, mtx: &sync.RWMutex{}}
 	caco := ClientAssertionCredentialOptions{
-		AdditionallyAllowedTenants: options.AdditionallyAllowedTenants,
-		ClientOptions:              options.ClientOptions,
-		DisableInstanceDiscovery:   options.DisableInstanceDiscovery,
+		AdditionallyAllowedTenants:   options.AdditionallyAllowedTenants,
+		ClientOptions:                options.ClientOptions,
+		DisableInstanceDiscovery:     options.DisableInstanceDiscovery,
+		TokenCachePersistenceOptions: options.TokenCachePersistenceOptions,
 	}
 	cred, err := NewClientAssertionCredential(tenantID, clientID, w.getAssertion, &caco)
 	if err != nil {

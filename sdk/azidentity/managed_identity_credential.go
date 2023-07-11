@@ -63,6 +63,9 @@ type ManagedIdentityCredentialOptions struct {
 	// instead of the hosting environment's default. The value may be the identity's client ID or resource ID, but note that
 	// some platforms don't accept resource IDs.
 	ID ManagedIDKind
+
+	// TokenCachePersistenceOptions enables persistent token caching when not nil.
+	TokenCachePersistenceOptions *TokenCachePersistenceOptions
 }
 
 // ManagedIdentityCredential authenticates an Azure managed identity in any hosting environment supporting managed identities.
@@ -92,7 +95,10 @@ func NewManagedIdentityCredential(options *ManagedIdentityCredentialOptions) (*M
 		clientID = options.ID.String()
 	}
 	// similarly, it's okay to give MSAL an incorrect tenant because MSAL won't use the value
-	c, err := newConfidentialClient("common", clientID, credNameManagedIdentity, cred, confidentialClientOptions{})
+	c, err := newConfidentialClient("common", clientID, credNameManagedIdentity, cred, confidentialClientOptions{
+		ClientOptions:                options.ClientOptions,
+		TokenCachePersistenceOptions: options.TokenCachePersistenceOptions,
+	})
 	if err != nil {
 		return nil, err
 	}
