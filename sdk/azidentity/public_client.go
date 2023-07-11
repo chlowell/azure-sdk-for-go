@@ -15,6 +15,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity/internal"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/log"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
 )
@@ -149,8 +150,13 @@ func (p *publicClient) client(tro policy.TokenRequestOptions) (msalPublicClient,
 }
 
 func (p *publicClient) newMSALClient(enableCAE bool) (msalPublicClient, error) {
+	cache, err := internal.NewCache(p.opts.TokenCachePersistenceOptions, enableCAE)
+	if err != nil {
+		return nil, err
+	}
 	o := []public.Option{
 		public.WithAuthority(runtime.JoinPaths(p.host, p.tenantID)),
+		public.WithCache(cache),
 		public.WithHTTPClient(newPipelineAdapter(&p.opts.ClientOptions)),
 	}
 	if enableCAE {
