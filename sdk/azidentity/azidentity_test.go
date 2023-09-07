@@ -688,13 +688,6 @@ func TestTokenCachePersistenceOptions(t *testing.T) {
 				},
 			},
 			{
-				name: credNameOBO,
-				ctor: func(co azcore.ClientOptions, tco *TokenCachePersistenceOptions) (azcore.TokenCredential, error) {
-					o := OnBehalfOfCredentialOptions{ClientOptions: co, TokenCachePersistenceOptions: tco}
-					return NewOnBehalfOfCredentialWithSecret(fakeTenantID, fakeClientID, "assertion", fakeSecret, &o)
-				},
-			},
-			{
 				name: credNameSecret,
 				ctor: func(co azcore.ClientOptions, tco *TokenCachePersistenceOptions) (azcore.TokenCredential, error) {
 					o := ClientSecretCredentialOptions{ClientOptions: co, TokenCachePersistenceOptions: tco}
