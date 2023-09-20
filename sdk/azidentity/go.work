@@ -2,5 +2,11 @@ go 1.18
 
 use (
 	.
+	./broker
 	./cache
+)
+
+replace (
+	github.com/AzureAD/microsoft-authentication-library-for-go => ../../../microsoft-authentication-library-for-go
+	github.com/AzureAD/microsoft-authentication-library-for-go/broker => ../../../microsoft-authentication-library-for-go/broker
 )

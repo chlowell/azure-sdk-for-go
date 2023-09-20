@@ -22,6 +22,11 @@ type InteractiveBrowserCredentialOptions struct {
 	// AdditionallyAllowedTenants specifies additional tenants for which the credential may acquire
 	// tokens. Add the wildcard value "*" to allow the credential to acquire tokens for any tenant.
 	AdditionallyAllowedTenants []string
+
+	// AllowBroker controls whether the credential prefers the system authentication broker on Windows to
+	// authenticating via a web browser.
+	AllowBroker bool
+
 	// ClientID is the ID of the application users will authenticate to.
 	// Defaults to the ID of an Azure development application.
 	ClientID string
@@ -32,8 +37,14 @@ type InteractiveBrowserCredentialOptions struct {
 	// the application responsible for ensuring the configured authority is valid and trustworthy.
 	DisableInstanceDiscovery bool
 
+	// EnableMSAPassthrough allows the credential authenticates with Microsoft Account (MSA) passthrough during
+	// brokered authentication.
+	// TODO: could this be an environment variable?
+	EnableMSAPassthrough bool
+
 	// LoginHint pre-populates the account prompt with a username. Users may choose to authenticate a different account.
 	LoginHint string
+
 	// RedirectURL is the URL Azure Active Directory will redirect to with the access token. This is required
 	// only when setting ClientID, and must match a redirect URI in the application's registration.
 	// Applications which have registered "http://localhost" as a redirect URI need not set this option.
@@ -68,8 +79,10 @@ func NewInteractiveBrowserCredential(options *InteractiveBrowserCredentialOption
 	}
 	cp.init()
 	msalOpts := publicClientOptions{
+		AllowBroker:                  cp.AllowBroker,
 		ClientOptions:                cp.ClientOptions,
 		DisableInstanceDiscovery:     cp.DisableInstanceDiscovery,
+		EnableMSAPassthrough:         cp.EnableMSAPassthrough,
 		LoginHint:                    cp.LoginHint,
 		RedirectURL:                  cp.RedirectURL,
 		TokenCachePersistenceOptions: cp.TokenCachePersistenceOptions,

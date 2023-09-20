@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
+	"github.com/AzureAD/microsoft-authentication-library-for-go/broker"
 )
 
 func TestInteractiveBrowserCredential_InvalidTenantID(t *testing.T) {
@@ -106,6 +108,27 @@ func TestInteractiveBrowserCredential_Live(t *testing.T) {
 		}
 		testGetTokenSuccess(t, cred)
 	})
+}
+
+func TestInteractiveBrowserCredential_Broker(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("brokered authentication is supported only on Windows")
+	}
+	// if !runManualTests {`
+	// 	t.Skipf("set %s to run this test", azidentityRunManualTests)
+	// }
+	err := broker.Initialize(`...`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cred, err := NewInteractiveBrowserCredential(&InteractiveBrowserCredentialOptions{
+		AllowBroker: true,
+		RedirectURL: "placeholder",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	testGetTokenSuccess(t, cred)
 }
 
 func TestInteractiveBrowserCredentialADFS_Live(t *testing.T) {

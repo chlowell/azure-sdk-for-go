@@ -24,8 +24,10 @@ type publicClientOptions struct {
 	azcore.ClientOptions
 
 	AdditionallyAllowedTenants   []string
+	AllowBroker                  bool
 	DeviceCodePrompt             func(context.Context, DeviceCodeMessage) error
 	DisableInstanceDiscovery     bool
+	EnableMSAPassthrough         bool
 	LoginHint, RedirectURL       string
 	TokenCachePersistenceOptions *TokenCachePersistenceOptions
 	Username, Password           string
@@ -161,6 +163,11 @@ func (p *publicClient) newMSALClient(enableCAE bool) (msalPublicClient, error) {
 	}
 	if enableCAE {
 		o = append(o, public.WithClientCapabilities(cp1))
+	}
+	if p.opts.AllowBroker {
+		o = append(o, public.WithBroker(public.BrokerOptions{
+			MSAPassthrough: p.opts.EnableMSAPassthrough,
+		}))
 	}
 	if p.opts.DisableInstanceDiscovery || strings.ToLower(p.tenantID) == "adfs" {
 		o = append(o, public.WithInstanceDiscovery(false))
