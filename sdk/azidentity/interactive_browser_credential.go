@@ -55,8 +55,6 @@ type InteractiveBrowserCredentialOptions struct {
 	// "organizations" tenant, which can authenticate work and school accounts.
 	TenantID string
 
-	// TokenCachePersistenceOptions enables persistent token caching when not nil.
-	TokenCachePersistenceOptions *TokenCachePersistenceOptions
 }
 
 func (o *InteractiveBrowserCredentialOptions) init() {

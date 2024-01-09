@@ -43,8 +43,6 @@ type ClientAssertionCredentialOptions struct {
 	// the application responsible for ensuring the configured authority is valid and trustworthy.
 	DisableInstanceDiscovery bool
 
-	// TokenCachePersistenceOptions enables persistent token caching when not nil.
-	TokenCachePersistenceOptions *TokenCachePersistenceOptions
 }
 
 // NewClientAssertionCredential constructs a ClientAssertionCredential. The getAssertion function must be thread safe. Pass nil for options to accept defaults.

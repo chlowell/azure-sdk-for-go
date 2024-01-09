@@ -31,9 +31,6 @@ type ClientSecretCredentialOptions struct {
 	// from https://login.microsoft.com before authenticating. Setting this to true will skip this request, making
 	// the application responsible for ensuring the configured authority is valid and trustworthy.
 	DisableInstanceDiscovery bool
-
-	// TokenCachePersistenceOptions enables persistent token caching when not nil.
-	TokenCachePersistenceOptions *TokenCachePersistenceOptions
 }
 
 // ClientSecretCredential authenticates an application with a client secret.

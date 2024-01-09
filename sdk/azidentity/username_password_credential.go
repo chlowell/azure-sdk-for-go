@@ -35,8 +35,6 @@ type UsernamePasswordCredentialOptions struct {
 	// the application responsible for ensuring the configured authority is valid and trustworthy.
 	DisableInstanceDiscovery bool
 
-	// TokenCachePersistenceOptions enables persistent token caching when not nil.
-	TokenCachePersistenceOptions *TokenCachePersistenceOptions
 }
 
 // UsernamePasswordCredential authenticates a user with a password. Microsoft doesn't recommend this kind of authentication,

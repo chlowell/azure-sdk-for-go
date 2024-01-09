@@ -42,8 +42,6 @@ type ClientCertificateCredentialOptions struct {
 	// Defaults to False.
 	SendCertificateChain bool
 
-	// TokenCachePersistenceOptions enables persistent token caching when not nil.
-	TokenCachePersistenceOptions *TokenCachePersistenceOptions
 }
 
 // ClientCertificateCredential authenticates a service principal with a certificate.

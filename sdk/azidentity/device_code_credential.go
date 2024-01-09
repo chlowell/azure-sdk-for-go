@@ -49,8 +49,6 @@ type DeviceCodeCredentialOptions struct {
 	// applications.
 	TenantID string
 
-	// TokenCachePersistenceOptions enables persistent token caching when not nil.
-	TokenCachePersistenceOptions *TokenCachePersistenceOptions
 
 	// UserPrompt controls how the credential presents authentication instructions. The credential calls
 	// this function with authentication details when it receives a device code. By default, the credential
