@@ -3,6 +3,7 @@
 ## 1.7.0-beta.2 (Unreleased)
 
 ### Features Added
+* Added `AzurePipelinesCredentialOptions.TokenCachePersistenceOptions`
 
 ### Breaking Changes
 
@@ -13,7 +14,7 @@
 ## 1.7.0-beta.1 (2024-06-10)
 
 ### Features Added
-* Restored `AzurePipelinesCredential` and persistent token caching API
+* Restored `TokenCachePersistenceOptions` and persistent token caching API
 
 ## Breaking Changes
 > These changes affect only code written against a beta version such as v1.6.0-beta.4

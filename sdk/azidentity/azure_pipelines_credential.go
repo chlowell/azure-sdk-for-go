@@ -45,6 +45,9 @@ type AzurePipelinesCredentialOptions struct {
 	// from https://login.microsoft.com before authenticating. Setting this to true will skip this request, making
 	// the application responsible for ensuring the configured authority is valid and trustworthy.
 	DisableInstanceDiscovery bool
+
+	// TokenCachePersistenceOptions enables persistent token caching when not nil.
+	TokenCachePersistenceOptions *TokenCachePersistenceOptions
 }
 
 // NewAzurePipelinesCredential is the constructor for AzurePipelinesCredential.
@@ -82,9 +85,10 @@ func NewAzurePipelinesCredential(tenantID, clientID, serviceConnectionID, system
 		options = &AzurePipelinesCredentialOptions{}
 	}
 	caco := ClientAssertionCredentialOptions{
-		AdditionallyAllowedTenants: options.AdditionallyAllowedTenants,
-		ClientOptions:              options.ClientOptions,
-		DisableInstanceDiscovery:   options.DisableInstanceDiscovery,
+		AdditionallyAllowedTenants:   options.AdditionallyAllowedTenants,
+		ClientOptions:                options.ClientOptions,
+		DisableInstanceDiscovery:     options.DisableInstanceDiscovery,
+		TokenCachePersistenceOptions: options.TokenCachePersistenceOptions,
 	}
 	cred, err := NewClientAssertionCredential(tenantID, clientID, a.getAssertion, &caco)
 	if err != nil {

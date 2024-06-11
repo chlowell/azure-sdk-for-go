@@ -889,7 +889,7 @@ func TestClaims(t *testing.T) {
 				o := AzurePipelinesCredentialOptions{ClientOptions: co}
 				return NewAzurePipelinesCredential(fakeTenantID, fakeClientID, "service-connection", tokenValue, &o)
 			},
-			env: map[string]string{systemOIDCRequestURI: "https://localhost/foo/UserRealm/foo"},
+			env: map[string]string{systemOIDCRequestURI: "https://localhost/instance"},
 		},
 		{
 			name: credNameCert,
@@ -1152,6 +1152,14 @@ func TestTokenCachePersistenceOptions(t *testing.T) {
 					o := ClientAssertionCredentialOptions{ClientOptions: co, TokenCachePersistenceOptions: tco}
 					return NewClientAssertionCredential(fakeTenantID, fakeClientID, func(context.Context) (string, error) { return "...", nil }, &o)
 				},
+			},
+			{
+				name: credNameAzurePipelines,
+				ctor: func(co azcore.ClientOptions, tco *TokenCachePersistenceOptions) (azcore.TokenCredential, error) {
+					o := AzurePipelinesCredentialOptions{ClientOptions: co, TokenCachePersistenceOptions: tco}
+					return NewAzurePipelinesCredential(fakeTenantID, fakeClientID, "service-connection", tokenValue, &o)
+				},
+				env: map[string]string{systemOIDCRequestURI: "https://localhost/instance"},
 			},
 			{
 				name: credNameCert,
