@@ -3,7 +3,11 @@
 
 package internal
 
-import "github.com/AzureAD/microsoft-authentication-library-for-go/apps/cache"
+import (
+	"sync"
+
+	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/cache"
+)
 
 // Cache represents a persistent token cache
 type Cache struct {
@@ -17,6 +21,7 @@ type impl struct {
 	factory func(bool) (cache.ExportReplace, error)
 	// cae and noCAE are previously constructed implementations
 	cae, noCAE cache.ExportReplace
+	mtx        *sync.RWMutex
 }
 
 func (i *impl) exportReplace(cae bool) (cache.ExportReplace, error) {
@@ -29,9 +34,15 @@ func (i *impl) exportReplace(cae bool) (cache.ExportReplace, error) {
 		xr  cache.ExportReplace
 	)
 	if cae {
+		i.mtx.RLock()
 		if i.cae == nil {
-			if xr, err = i.factory(cae); err == nil {
-				i.cae = xr
+			i.mtx.RUnlock()
+			i.mtx.Lock()
+			defer i.mtx.Unlock()
+			if i.cae == nil {
+				if xr, err = i.factory(cae); err == nil {
+					i.cae = xr
+				}
 			}
 		}
 		return i.cae, err
