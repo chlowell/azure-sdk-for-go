@@ -117,7 +117,7 @@ func TestContextWithDeniedValues(t *testing.T) {
 	ctx = context.WithValue(ctx, CtxWithHTTPHeaderKey{}, value)
 	ctx = context.WithValue(ctx, CtxWithRetryOptionsKey{}, value)
 	ctx = context.WithValue(ctx, CtxWithTracingTracer{}, value)
-	ctx = &ContextWithDeniedValues{Context: ctx}
+	ctx = NewContextThing(ctx, []any{CtxAPINameKey{}, CtxWithCaptureResponse{}, CtxWithHTTPHeaderKey{}, CtxWithRetryOptionsKey{}, CtxWithTracingTracer{}})
 
 	require.Nil(t, ctx.Value(CtxAPINameKey{}))
 	require.Nil(t, ctx.Value(CtxWithCaptureResponse{}))

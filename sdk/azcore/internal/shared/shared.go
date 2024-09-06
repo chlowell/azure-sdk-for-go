@@ -135,15 +135,32 @@ func ValidateModVer(moduleVersion string) error {
 // requests which can have unintended side-effects.
 type ContextWithDeniedValues struct {
 	context.Context
+
+	deniedValues []any
+}
+
+func NewContextThing(ctx context.Context, deniedValues []any) ContextWithDeniedValues {
+	defaults := []any{CtxWithCaptureResponse{}, CtxWithHTTPHeaderKey{}, CtxWithRetryOptionsKey{}}
+	return ContextWithDeniedValues{
+		Context:      ctx,
+		deniedValues: append(defaults, deniedValues...),
+	}
 }
 
 // Value implements part of the [context.Context] interface.
 // It acts as a deny-list for certain context keys.
-func (c *ContextWithDeniedValues) Value(key any) any {
-	switch key.(type) {
-	case CtxAPINameKey, CtxWithCaptureResponse, CtxWithHTTPHeaderKey, CtxWithRetryOptionsKey, CtxWithTracingTracer:
-		return nil
-	default:
-		return c.Context.Value(key)
+func (c ContextWithDeniedValues) Value(key any) any {
+	for _, dv := range c.deniedValues {
+		switch t1 := dv.(type) {
+		default:
+			switch t2 := key.(type) {
+			default:
+				// TODO: is this really better than reflect.TypeOf?
+				if t1 == t2 {
+					return nil
+				}
+			}
+		}
 	}
+	return c.Context.Value(key)
 }
