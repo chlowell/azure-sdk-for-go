@@ -61,17 +61,13 @@ func NewBearerTokenPolicy(cred exported.TokenCredential, scopes []string, opts *
 		mainResource: temporal.NewResource(acquire),
 		allowHTTP:    opts.InsecureAllowCredentialWithHTTP,
 	}
-	if b.authzHandler.OnChallenge == nil {
-		b.authzHandler.OnChallenge = b.handleCAEChallenge
-		b.authzHandler.SupportsCAE = true
-	}
 	return b
 }
 
 // authenticateAndAuthorize returns a function which authorizes req with a token from the policy's credential
 func (b *BearerTokenPolicy) authenticateAndAuthorize(req *policy.Request) func(policy.TokenRequestOptions) error {
 	return func(tro policy.TokenRequestOptions) error {
-		tro.EnableCAE = b.authzHandler.SupportsCAE
+		tro.EnableCAE = true
 		as := acquiringResourceState{p: b, req: req, tro: tro}
 		tk, err := b.mainResource.Get(as)
 		if err != nil {
@@ -80,6 +76,35 @@ func (b *BearerTokenPolicy) authenticateAndAuthorize(req *policy.Request) func(p
 		req.Raw().Header.Set(shared.HeaderAuthorization, shared.BearerTokenPrefix+tk.Token)
 		return nil
 	}
+}
+
+func get(challenges []authChallenge) (*authChallenge, int, error) {
+	var (
+		bearerChallenges int
+		caeChallenge     *authChallenge
+		err              error
+	)
+	for _, c := range challenges {
+		if c.scheme == "Bearer" {
+			bearerChallenges++
+			if claims := c.params["claims"]; claims != "" && c.params["error"] == "insufficient_claims" {
+				pad := strings.Index(claims, "=")
+				if pad >= 0 {
+					claims = claims[:pad]
+				}
+				b, de := base64.RawURLEncoding.DecodeString(claims)
+				if de != nil {
+					// we don't include the decoding error because it's something
+					// unhelpful like "illegal base64 data at input byte 42"
+					err = errorinfo.NonRetriableError(errors.New("challenge contains invalid claims: " + claims))
+					break
+				}
+				c.params["claims"] = string(b)
+				caeChallenge = &c
+			}
+		}
+	}
+	return caeChallenge, bearerChallenges, err
 }
 
 // Do authorizes a request with a bearer token
@@ -112,9 +137,51 @@ func (b *BearerTokenPolicy) Do(req *policy.Request) (*http.Response, error) {
 
 	if res.StatusCode == http.StatusUnauthorized {
 		b.mainResource.Expire()
-		if res.Header.Get(shared.HeaderWWWAuthenticate) != "" && b.authzHandler.OnChallenge != nil {
-			if err = b.authzHandler.OnChallenge(req, res, b.authenticateAndAuthorize(req)); err == nil {
-				res, err = req.Next()
+		if h := res.Header.Get(shared.HeaderWWWAuthenticate); h != "" {
+			challenges, x := parseChallenges(res)
+			// TODO: do we care whether res has unparseable challenges?
+			_ = x
+			caeChallenge, bearerChallenges, parseErr := get(challenges)
+			if parseErr != nil {
+				return res, parseErr
+			}
+			switch {
+			// call the client's challenge handler if any of the following is true:
+			//   - res has no CAE challenge
+			//   - res has more than one Bearer challenge
+			case b.authzHandler.OnChallenge != nil && (caeChallenge == nil || bearerChallenges > 1):
+				if err = b.authzHandler.OnChallenge(req, res, b.authenticateAndAuthorize(req)); err == nil {
+					if res, err = req.Next(); err == nil && res.StatusCode == http.StatusUnauthorized {
+						b.mainResource.Expire()
+						challenges, _ := parseChallenges(res)
+						caeChallenge, _, parseErr := get(challenges)
+						if parseErr != nil {
+							return res, parseErr
+						}
+						if caeChallenge != nil {
+							tro := policy.TokenRequestOptions{
+								Claims: caeChallenge.params["claims"],
+								Scopes: b.scopes,
+							}
+							err = b.authenticateAndAuthorize(req)(tro)
+							if err == nil {
+								res, err = req.Next()
+							}
+						}
+					}
+				}
+			// if res has a Bearer CAE challenge, this policy can handle it
+			case caeChallenge != nil:
+				tro := policy.TokenRequestOptions{
+					Claims: caeChallenge.params["claims"],
+					Scopes: b.scopes,
+				}
+				if err = b.authenticateAndAuthorize(req)(tro); err == nil {
+					res, err = req.Next()
+				}
+			// no challenge handler from the client, no CAE challenge; return an error
+			default:
+				err = NewResponseError(res)
 			}
 		}
 	}
@@ -124,20 +191,6 @@ func (b *BearerTokenPolicy) Do(req *policy.Request) (*http.Response, error) {
 	return res, err
 }
 
-func (b *BearerTokenPolicy) handleCAEChallenge(_ *policy.Request, res *http.Response, authNZ func(policy.TokenRequestOptions) error) error {
-	claims, err := parseCAEChallenge(res)
-	if err != nil {
-		// challenge contains claims we can't parse
-		return err
-	}
-	if claims == "" {
-		// no claims in challenge, so this is a simple authorization failure
-		return NewResponseError(res)
-	}
-	// request a new token having the specified claims, send the request again
-	return authNZ(policy.TokenRequestOptions{Claims: claims, EnableCAE: true, Scopes: b.scopes})
-}
-
 func checkHTTPSForAuth(req *policy.Request, allowHTTP bool) error {
 	if strings.ToLower(req.Raw().URL.Scheme) != "https" && !allowHTTP {
 		return errorinfo.NonRetriableError(errors.New("authenticated requests are not permitted for non TLS protected (https) endpoints"))
@@ -145,62 +198,50 @@ func checkHTTPSForAuth(req *policy.Request, allowHTTP bool) error {
 	return nil
 }
 
+type authChallenge struct {
+	scheme string
+	params map[string]string
+}
+
 var (
-	claimsChallenge *regexp.Regexp
-	once            = &sync.Once{}
+	challenge, challengeParams *regexp.Regexp
+	once                       = &sync.Once{}
 )
 
-// parseCAEChallenge extracts claims from the first CAE challenge in the response's WWW-Authenticate header. If
-// the response doesn't contain a CAE challenge, it returns an empty string and nil error. It returns a non-nil
-// error only when it identifies a CAE challenge whose claims aren't valid base64.
-func parseCAEChallenge(res *http.Response) (string, error) {
+// parseChallenges returns all res's authentication parseChallenges and a bool indicating
+// whether the returned parseChallenges comprise the entire header
+func parseChallenges(res *http.Response) ([]authChallenge, bool) {
 	once.Do(func() {
-		// This expression matches CAE claims challenges and captures their parameters. It doesn't
-		// correspond precisely to the challenge grammar in RFC 7235 appendix C because CAE challenges
-		// are more narrowly defined at
-		// https://learn.microsoft.com/entra/identity-platform/claims-challenge#claims-challenge-header-format
-		// It matches only Bearer challenges because this policy doesn't support other auth schemes.
-		claimsChallenge = regexp.MustCompile(`(?:Bearer ((?:\w+="[^"]*",?\s*)+))`)
+		// this expression matches challenges having quoted parameters, capturing scheme and parameters
+		challenge = regexp.MustCompile(`(?:(\w+) ((?:\w+="[^"]*",?\s*)+))`)
+		// this expression captures parameter names and values in a match of the above expression
+		challengeParams = regexp.MustCompile(`(\w+)="([^"]*)"`)
 	})
+	var (
+		extra      int
+		challenges []authChallenge
+	)
 	// WWW-Authenticate can have multiple values, each containing multiple challenges
 	for _, h := range res.Header.Values(shared.HeaderWWWAuthenticate) {
-		for _, sm := range claimsChallenge.FindAllStringSubmatch(h, -1) {
-			if len(sm) < 2 {
-				continue
-			}
-			for _, params := range sm[1:] {
-				cae := false
-				claims := ""
-				for _, param := range strings.Split(params, ", ") {
-					k, v, found := strings.Cut(param, `="`)
-					if !found {
-						// should never happen given the regex that got us here
-						continue
-					}
-					switch strings.Trim(k, " ") {
-					case "claims":
-						claims = v
-					case "error":
-						// v has an irrelevant trailing quote
-						if strings.HasPrefix(v, "insufficient_claims") {
-							cae = true
-						}
+		extra += len(h)
+		for _, sm := range challenge.FindAllStringSubmatch(h, -1) {
+			// sm is [full match, challenge scheme, challenge params]
+			extra -= len(sm[0])
+			// len checks aren't necessary but prevent you wondering whether this function could panic
+			if len(sm) == 3 {
+				c := authChallenge{
+					params: make(map[string]string),
+					scheme: sm[1],
+				}
+				for _, sm := range challengeParams.FindAllStringSubmatch(sm[2], -1) {
+					// sm is [full match, parameter key, parameter value]
+					if len(sm) == 3 {
+						c.params[sm[1]] = sm[2]
 					}
 				}
-				if cae && claims != "" {
-					// remove the trailing quote and any base64 padding
-					if end := strings.IndexAny(claims, `="`); end > 0 {
-						claims = claims[:end]
-					}
-					if b, de := base64.RawURLEncoding.DecodeString(claims); de == nil {
-						return string(b), nil
-					}
-					// we don't include the decoding error because it's something
-					// unhelpful like "illegal base64 data at input byte 42"
-					return "", errors.New("challenge contains invalid claims: " + claims)
-				}
+				challenges = append(challenges, c)
 			}
 		}
 	}
-	return "", nil
+	return challenges, extra != 0
 }

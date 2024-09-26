@@ -179,34 +179,6 @@ func TestBearerTokenPolicy_AuthZHandler(t *testing.T) {
 	require.Equal(t, 1, handler.onReqCalls)
 	// handler functions didn't return errors, so the policy should have sent a request after calling each
 	require.Equal(t, 2, srv.Requests())
-
-	t.Run("SupportsCAE", func(t *testing.T) {
-		for _, supportsCAE := range []bool{true, false} {
-			srv, close := mock.NewTLSServer(mock.WithTransformAllRequestsToTestServerUrl())
-			defer close()
-			srv.AppendResponse(mock.WithStatusCode(200))
-
-			calls := 0
-			cred := mockCredential{
-				getTokenImpl: func(_ context.Context, actual policy.TokenRequestOptions) (exported.AccessToken, error) {
-					calls += 1
-					require.Equal(t, supportsCAE, actual.EnableCAE, "policy should request CAE tokens only when AuthorizationHandler.SupportsCAE is true")
-					return exported.AccessToken{Token: tokenValue, ExpiresOn: time.Now().Add(time.Hour)}, nil
-				},
-			}
-			o := policy.BearerTokenOptions{AuthorizationHandler: policy.AuthorizationHandler{
-				OnChallenge: func(*policy.Request, *http.Response, func(policy.TokenRequestOptions) error) error {
-					return nil
-				},
-				SupportsCAE: supportsCAE,
-			}}
-			b = NewBearerTokenPolicy(cred, nil, &o)
-			pl = newTestPipeline(&policy.ClientOptions{PerRetryPolicies: []policy.Policy{b}, Transport: srv})
-			_, err = pl.Do(req)
-			require.NoError(t, err)
-			require.Equal(t, 1, calls, "policy should have called GetToken once")
-		}
-	})
 }
 
 func TestBearerTokenPolicy_AuthZHandlerErrors(t *testing.T) {
@@ -253,23 +225,104 @@ func TestBearerTokenPolicy_AuthZHandlerErrors(t *testing.T) {
 	}
 }
 
-func TestBearerTokenPolicyChallengeHandling(t *testing.T) {
+func TestBearerTokenPolicy_OnChallenge(t *testing.T) {
+	for _, test := range []struct {
+		challenge, desc string
+	}{
+		{
+			desc:      "no claims",
+			challenge: `Bearer authorization_uri="https://login.windows.net/", error="insufficient_claims"`,
+		},
+		{
+			desc:      "no commas",
+			challenge: `Bearer authorization_uri="https://login.windows.net/" error_description="something went wrong"`,
+		},
+		{
+			desc:      "claims with unexpected error",
+			challenge: `Bearer authorization_uri="https://login.windows.net/", error="invalid_token", claims="ey=="`,
+		},
+		{
+			desc:      "multiple Bearer challenges",
+			challenge: `Bearer realm="", authorization_uri="...", Bearer realm="", authorization_uri="...", error="insufficient_claims", claims="ey=="`,
+		},
+	} {
+		t.Run(test.desc, func(t *testing.T) {
+			srv, close := mock.NewTLSServer()
+			defer close()
+			srv.AppendResponse(mock.WithHeader(shared.HeaderWWWAuthenticate, test.challenge), mock.WithStatusCode(http.StatusUnauthorized))
+			srv.AppendResponse(mock.WithStatusCode(http.StatusOK))
+
+			called := false
+			b := NewBearerTokenPolicy(mockCredential{}, []string{scope}, &policy.BearerTokenOptions{
+				AuthorizationHandler: policy.AuthorizationHandler{
+					OnChallenge: func(_ *policy.Request, res *http.Response, _ func(policy.TokenRequestOptions) error) error {
+						called = true
+						require.EqualValues(t, test.challenge, res.Header.Get(shared.HeaderWWWAuthenticate))
+						return nil
+					},
+				},
+			})
+			pipeline := newTestPipeline(&policy.ClientOptions{PerRetryPolicies: []policy.Policy{b}, Transport: srv})
+
+			req, err := NewRequest(context.Background(), http.MethodGet, srv.URL())
+			require.NoError(t, err)
+			_, err = pipeline.Do(req)
+			require.NoError(t, err)
+			require.True(t, called, "policy should call the client's challenge handler")
+		})
+	}
+
+	t.Run("CAE challenge after non-CAE challenge", func(t *testing.T) {
+		cae1 := `Bearer error="insufficient_claims", claims="MQ=="`
+		cae2 := `Bearer error="insufficient_claims", claims="Mg=="`
+		notCAE := `Bearer authorization_uri="...", error="invalid_token"`
+		for _, caeChallengeMet := range []bool{true, false} {
+			srv, close := mock.NewTLSServer()
+			defer close()
+			srv.AppendResponse(mock.WithHeader(shared.HeaderWWWAuthenticate, notCAE), mock.WithStatusCode(http.StatusUnauthorized))
+			srv.AppendResponse(mock.WithHeader(shared.HeaderWWWAuthenticate, cae1), mock.WithStatusCode(http.StatusUnauthorized))
+			if caeChallengeMet {
+				srv.AppendResponse(mock.WithStatusCode(http.StatusOK))
+			} else {
+				srv.AppendResponse(mock.WithHeader(shared.HeaderWWWAuthenticate, cae2), mock.WithStatusCode(http.StatusUnauthorized))
+			}
+
+			calls := 0
+			b := NewBearerTokenPolicy(mockCredential{}, []string{scope}, &policy.BearerTokenOptions{
+				AuthorizationHandler: policy.AuthorizationHandler{
+					OnChallenge: func(_ *policy.Request, res *http.Response, _ func(policy.TokenRequestOptions) error) error {
+						require.Equal(t, calls, 0, "policy should call the client's challenge handler only once")
+						calls++
+						actual := res.Header.Get(shared.HeaderWWWAuthenticate)
+						require.Equal(t, notCAE, actual, "policy should call the client's challenge handler only for the non-CAE challenge")
+						return nil
+					},
+				},
+			})
+			pl := newTestPipeline(&policy.ClientOptions{PerRetryPolicies: []policy.Policy{b}, Transport: srv})
+
+			req, err := NewRequest(context.Background(), http.MethodGet, srv.URL())
+			require.NoError(t, err)
+			res, err := pl.Do(req)
+			require.NoError(t, err)
+			if caeChallengeMet {
+				require.Equal(t, res.StatusCode, http.StatusOK)
+			} else {
+				require.Equal(t, res.StatusCode, http.StatusUnauthorized)
+				require.Equal(t, res.Header.Get(shared.HeaderWWWAuthenticate), cae2)
+			}
+			require.Equal(t, calls, 1, "policy should call the client's challenge handler for the non-CAE challenge")
+		}
+	})
+}
+
+func TestBearerTokenPolicy_CAEChallengeHandling(t *testing.T) {
 	for _, test := range []struct {
 		challenge, desc, expectedClaims string
 		err                             error
 	}{
 		{
 			desc: "no challenge",
-		},
-		{
-			desc:      "no claims",
-			challenge: `Bearer authorization_uri="https://login.windows.net/", error="insufficient_claims", error_description="The authentication failed because of missing 'Authorization' header."`,
-			err:       (*exported.ResponseError)(nil),
-		},
-		{
-			desc:      "unexpected error value",
-			challenge: `Bearer authorization_uri="https://login.windows.net/", error="invalid_token", claims="ey=="`,
-			err:       (*exported.ResponseError)(nil),
 		},
 		{
 			desc:      "parsing error",
@@ -323,7 +376,14 @@ func TestBearerTokenPolicyChallengeHandling(t *testing.T) {
 					return exported.AccessToken{Token: tokenValue, ExpiresOn: time.Now().Add(time.Hour).UTC()}, nil
 				},
 			}
-			b := NewBearerTokenPolicy(cred, []string{scope}, nil)
+			b := NewBearerTokenPolicy(cred, []string{scope}, &policy.BearerTokenOptions{
+				AuthorizationHandler: policy.AuthorizationHandler{
+					OnChallenge: func(*policy.Request, *http.Response, func(policy.TokenRequestOptions) error) error {
+						t.Fatal("policy shouldn't call the client's challenge handler")
+						return nil
+					},
+				},
+			})
 			pipeline := newTestPipeline(&policy.ClientOptions{PerRetryPolicies: []policy.Policy{b}, Transport: srv})
 			req, err := NewRequest(context.Background(), http.MethodGet, srv.URL())
 			require.NoError(t, err)
@@ -334,7 +394,7 @@ func TestBearerTokenPolicyChallengeHandling(t *testing.T) {
 				require.ErrorAs(t, err, &test.err)
 			}
 			if test.expectedClaims != "" {
-				require.Equal(t, 2, tkReqs, "policy should have requested a new token upon receiving the challenge")
+				require.Equal(t, 2, tkReqs, "policy should request a new token upon receiving the challenge")
 			}
 		})
 	}
