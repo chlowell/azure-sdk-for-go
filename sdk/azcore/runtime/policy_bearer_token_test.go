@@ -5,6 +5,9 @@ package runtime
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
+	"strings"
 
 	"errors"
 	"net/http"
@@ -277,8 +280,8 @@ func TestBearerTokenPolicy_OnChallenge(t *testing.T) {
 	}
 
 	t.Run("CAE challenge after non-CAE challenge", func(t *testing.T) {
-		cae1 := `Bearer error="insufficient_claims", claims="MQ=="`
-		cae2 := `Bearer error="insufficient_claims", claims="Mg=="`
+		cae1 := `Bearer error="insufficient_claims", claims=` + fmt.Sprintf("%q", base64.StdEncoding.EncodeToString([]byte{'1'}))
+		cae2 := `Bearer error="insufficient_claims", claims=` + fmt.Sprintf("%q", base64.StdEncoding.EncodeToString([]byte{'2'}))
 		notCAE := `Bearer authorization_uri="...", error="invalid_token"`
 		for _, caeChallengeMet := range []bool{true, false} {
 			srv, close := mock.NewTLSServer()
@@ -291,18 +294,36 @@ func TestBearerTokenPolicy_OnChallenge(t *testing.T) {
 				srv.AppendResponse(mock.WithHeader(shared.HeaderWWWAuthenticate, cae2), mock.WithStatusCode(http.StatusUnauthorized))
 			}
 
-			calls := 0
-			b := NewBearerTokenPolicy(mockCredential{}, []string{scope}, &policy.BearerTokenOptions{
-				AuthorizationHandler: policy.AuthorizationHandler{
-					OnChallenge: func(_ *policy.Request, res *http.Response, _ func(policy.TokenRequestOptions) error) error {
-						require.Equal(t, calls, 0, "policy should call the client's challenge handler only once")
-						calls++
-						actual := res.Header.Get(shared.HeaderWWWAuthenticate)
-						require.Equal(t, notCAE, actual, "policy should call the client's challenge handler only for the non-CAE challenge")
-						return nil
+			onChallengeCalled := false
+			tkReqs := 0
+			b := NewBearerTokenPolicy(
+				mockCredential{
+					getTokenImpl: func(_ context.Context, actual policy.TokenRequestOptions) (exported.AccessToken, error) {
+						require.Equal(t, scope, actual.Scopes[0])
+						switch tkReqs {
+						case 0:
+						case 1, 2:
+							// second and third calls should include challenge claims
+							require.Equal(t, fmt.Sprint(tkReqs), actual.Claims)
+						default:
+							t.Fatal("unexpected token request")
+						}
+						tkReqs++
+						return exported.AccessToken{Token: tokenValue, ExpiresOn: time.Now().Add(time.Hour).UTC()}, nil
 					},
 				},
-			})
+				[]string{scope},
+				&policy.BearerTokenOptions{
+					AuthorizationHandler: policy.AuthorizationHandler{
+						OnChallenge: func(_ *policy.Request, res *http.Response, _ func(policy.TokenRequestOptions) error) error {
+							require.False(t, onChallengeCalled, "policy should call the client's challenge handler only once")
+							onChallengeCalled = true
+							actual := res.Header.Get(shared.HeaderWWWAuthenticate)
+							require.Equal(t, notCAE, actual, "policy should call the client's challenge handler only for the non-CAE challenge")
+							return nil
+						},
+					},
+				})
 			pl := newTestPipeline(&policy.ClientOptions{PerRetryPolicies: []policy.Policy{b}, Transport: srv})
 
 			req, err := NewRequest(context.Background(), http.MethodGet, srv.URL())
@@ -315,12 +336,20 @@ func TestBearerTokenPolicy_OnChallenge(t *testing.T) {
 				require.Equal(t, res.StatusCode, http.StatusUnauthorized)
 				require.Equal(t, res.Header.Get(shared.HeaderWWWAuthenticate), cae2)
 			}
-			require.Equal(t, calls, 1, "policy should call the client's challenge handler for the non-CAE challenge")
+			require.True(t, onChallengeCalled, "policy should call the client's challenge handler for the non-CAE challenge")
 		}
 	})
 }
 
 func TestBearerTokenPolicy_CAEChallengeHandling(t *testing.T) {
+	// requireToken is a mock.Response predicate that checks a request for the expected token
+	requireToken := func(t *testing.T, want string) func(req *http.Request) bool {
+		return func(r *http.Request) bool {
+			_, actual, _ := strings.Cut(r.Header.Get(shared.HeaderAuthorization), " ")
+			require.Equal(t, want, actual)
+			return true
+		}
+	}
 	for _, test := range []struct {
 		challenge, desc, expectedClaims string
 		err                             error
@@ -355,24 +384,38 @@ func TestBearerTokenPolicy_CAEChallengeHandling(t *testing.T) {
 		},
 	} {
 		t.Run(test.desc, func(t *testing.T) {
+			challengedToken := "needs more claims"
+			tokenWithClaims := "all the claims"
+
 			srv, close := mock.NewTLSServer()
 			defer close()
-			srv.AppendResponse(mock.WithHeader(shared.HeaderWWWAuthenticate, test.challenge), mock.WithStatusCode(http.StatusUnauthorized))
-			srv.AppendResponse(mock.WithStatusCode(http.StatusOK))
+			srv.AppendResponse(
+				mock.WithHeader(shared.HeaderWWWAuthenticate, test.challenge),
+				mock.WithPredicate(requireToken(t, challengedToken)),
+				mock.WithStatusCode(http.StatusUnauthorized),
+			)
+			srv.AppendResponse() // when a response's predicate returns true, srv pops the following one
+			srv.AppendResponse(mock.WithPredicate(requireToken(t, tokenWithClaims)))
+			srv.AppendResponse()
+			srv.AppendResponse(mock.WithPredicate(requireToken(t, tokenWithClaims)))
+			srv.AppendResponse()
+
 			tkReqs := 0
 			cred := mockCredential{
 				getTokenImpl: func(_ context.Context, actual policy.TokenRequestOptions) (exported.AccessToken, error) {
 					require.True(t, actual.EnableCAE)
 					tkReqs += 1
+					tk := challengedToken
 					switch tkReqs {
 					case 1:
 						require.Empty(t, actual.Claims)
 					case 2:
+						tk = tokenWithClaims
 						require.Equal(t, test.expectedClaims, actual.Claims)
 					default:
 						t.Fatal("unexpected token request")
 					}
-					return exported.AccessToken{Token: tokenValue, ExpiresOn: time.Now().Add(time.Hour).UTC()}, nil
+					return exported.AccessToken{Token: tk, ExpiresOn: time.Now().Add(time.Hour).UTC()}, nil
 				},
 			}
 			b := NewBearerTokenPolicy(cred, []string{scope}, &policy.BearerTokenOptions{
@@ -388,6 +431,9 @@ func TestBearerTokenPolicy_CAEChallengeHandling(t *testing.T) {
 			require.NoError(t, err)
 			_, err = pipeline.Do(req)
 			if test.err == nil {
+				require.NoError(t, err)
+				// send another request to verify the policy cached the token it acquired to satisfy the challenge
+				_, err = pipeline.Do(req)
 				require.NoError(t, err)
 			} else {
 				require.ErrorAs(t, err, &test.err)
