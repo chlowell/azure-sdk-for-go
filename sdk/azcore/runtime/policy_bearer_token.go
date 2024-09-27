@@ -120,14 +120,10 @@ func (b *BearerTokenPolicy) Do(req *policy.Request) (*http.Response, error) {
 				// can't interpret the second, so it defers to the client's handler.
 				if err = b.authzHandler.OnChallenge(req, res, b.authenticateAndAuthorize(req)); err == nil {
 					if res, err = req.Next(); err == nil && res.StatusCode == http.StatusUnauthorized {
-						// Client handled the challenge but the server responded with another. If the
-						// server sent a CAE challenge, handle that here, ignoring any other challenges.
+						// Client handled the previous challenge but the server responded with another. If this
+						// response includes a CAE challenge, handle that here, ignoring any other challenges.
 						b.mainResource.Expire()
-						caeChallenge, _, parseErr := parseCAEChallenge(res)
-						if parseErr != nil {
-							return res, parseErr
-						}
-						if caeChallenge != nil {
+						if caeChallenge, _, err = parseCAEChallenge(res); caeChallenge != nil {
 							tro := policy.TokenRequestOptions{
 								Claims: caeChallenge.params["claims"],
 								Scopes: b.scopes,
@@ -186,7 +182,7 @@ func parseCAEChallenge(res *http.Response) (*authChallenge, int, error) {
 				}
 				b, de := base64.RawURLEncoding.DecodeString(claims)
 				if de != nil {
-					// we don't include the decoding error because it's something
+					// don't include the decoding error because it's something
 					// unhelpful like "illegal base64 data at input byte 42"
 					err = errorinfo.NonRetriableError(errors.New("authentication challenge contains invalid claims: " + claims))
 					break
@@ -197,10 +193,11 @@ func parseCAEChallenge(res *http.Response) (*authChallenge, int, error) {
 		}
 	}
 	if !allParsed {
-		// recount Bearer challenges, including unparsed ones this time
+		// recount Bearer challenges, including unparsed ones this time, because whether the response
+		// carries multiple Bearer challenges affects the policy's decision to handle a CAE challenge
 		count = 0
 		for _, h := range res.Header.Values(shared.HeaderWWWAuthenticate) {
-			// the space isn't a typo. RFC 7235 specifies a space following the scheme,
+			// the space isn't a typo. RFC 7235 specifies a space follows the scheme,
 			// and we don't want to count e.g. "Foo bar=Bearer" as a Bearer challenge
 			count += strings.Count(h, "Bearer ")
 		}
@@ -208,15 +205,15 @@ func parseCAEChallenge(res *http.Response) (*authChallenge, int, error) {
 	return caeChallenge, count, err
 }
 
-type authChallenge struct {
-	scheme string
-	params map[string]string
-}
-
 var (
 	challenge, challengeParams *regexp.Regexp
 	once                       = &sync.Once{}
 )
+
+type authChallenge struct {
+	scheme string
+	params map[string]string
+}
 
 // parseChallenges returns a slice of authentication challenges from the Response and a bool indicating
 // whether this slice includes all the Response's challenges. When this bool is false, it means the
@@ -236,7 +233,7 @@ func parseChallenges(res *http.Response) ([]authChallenge, bool) {
 	for _, h := range res.Header.Values(shared.HeaderWWWAuthenticate) {
 		extra += len(h)
 		for _, sm := range challenge.FindAllStringSubmatch(h, -1) {
-			// sm is [challenge, challenge scheme, challenge params]
+			// sm is [challenge, scheme, params]
 			extra -= len(sm[0])
 			// len checks aren't necessary but save you from wondering whether this function could panic
 			if len(sm) == 3 {
@@ -245,7 +242,7 @@ func parseChallenges(res *http.Response) ([]authChallenge, bool) {
 					scheme: sm[1],
 				}
 				for _, sm := range challengeParams.FindAllStringSubmatch(sm[2], -1) {
-					// sm is [key=value, key, value]
+					// sm is [key="value", key, value]
 					if len(sm) == 3 {
 						c.params[sm[1]] = sm[2]
 					}

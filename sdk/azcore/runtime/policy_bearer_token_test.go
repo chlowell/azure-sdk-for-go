@@ -344,18 +344,13 @@ func TestBearerTokenPolicy_CAEChallengeHandling(t *testing.T) {
 			expectedClaims: "{",
 		},
 		{
-			desc:           "reordered params",
-			challenge:      `Bearer realm="", claims="ey==", authorization_uri="http://localhost", client_id="...", error="insufficient_claims"`,
-			expectedClaims: "{",
-		},
-		{
 			desc:           "multiple challenges",
 			challenge:      `PoP realm="", authorization_uri="http://localhost", client_id="...", nonce="ey==", Bearer realm="", error="insufficient_claims", authorization_uri="http://localhost", client_id="...", error_description="Continuous access evaluation resulted in challenge with result: InteractionRequired and code: TokenIssuedBeforeRevocationTimestamp", claims="eyJhY2Nlc3NfdG9rZW4iOnsibmJmIjp7ImVzc2VudGlhbCI6dHJ1ZSwgInZhbHVlIjoiMTcyNjI1ODEyMiJ9fX0="`,
 			expectedClaims: `{"access_token":{"nbf":{"essential":true, "value":"1726258122"}}}`,
 		},
 		{
 			desc:           "CAE+unparseable challenge",
-			challenge:      `Foo what=can't parse this, error=my bad, Bearer error="insufficient_claims", claims="ey=="`,
+			challenge:      `Foo bar=can't parse this, error=my bad, Bearer claims="ey==", error="insufficient_claims"`,
 			expectedClaims: "{",
 		},
 	} {
@@ -375,7 +370,7 @@ func TestBearerTokenPolicy_CAEChallengeHandling(t *testing.T) {
 					case 2:
 						require.Equal(t, test.expectedClaims, actual.Claims)
 					default:
-						t.Fatalf("unexpected token request")
+						t.Fatal("unexpected token request")
 					}
 					return exported.AccessToken{Token: tokenValue, ExpiresOn: time.Now().Add(time.Hour).UTC()}, nil
 				},
