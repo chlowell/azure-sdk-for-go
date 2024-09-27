@@ -245,6 +245,10 @@ func TestBearerTokenPolicy_OnChallenge(t *testing.T) {
 			desc:      "multiple Bearer challenges",
 			challenge: `Bearer realm="", authorization_uri="...", Bearer realm="", authorization_uri="...", error="insufficient_claims", claims="ey=="`,
 		},
+		{
+			desc:      "CAE and unparseable Bearer challenge",
+			challenge: `Bearer error="insufficient_claims", claims="ey==", Bearer key=can't parse this, error=invalid_token`,
+		},
 	} {
 		t.Run(test.desc, func(t *testing.T) {
 			srv, close := mock.NewTLSServer()
@@ -325,9 +329,14 @@ func TestBearerTokenPolicy_CAEChallengeHandling(t *testing.T) {
 			desc: "no challenge",
 		},
 		{
-			desc:      "parsing error",
+			desc:      "invalid claims",
 			challenge: `Bearer claims="not base64", error="insufficient_claims"`,
 			err:       (*exported.ResponseError)(nil),
+		},
+		{
+			desc:           "standard",
+			challenge:      `Bearer realm="", authorization_uri="http://localhost", error="insufficient_claims", claims="eyJhY2Nlc3NfdG9rZW4iOnsibmJmIjp7ImVzc2VudGlhbCI6dHJ1ZSwidmFsdWUiOiIxNzI2MDc3NTk1In0sInhtc19jYWVlcnJvciI6eyJ2YWx1ZSI6IjEwMDEyIn19fQ=="`,
+			expectedClaims: `{"access_token":{"nbf":{"essential":true,"value":"1726077595"},"xms_caeerror":{"value":"10012"}}}`,
 		},
 		{
 			desc:           "no padding",
@@ -335,24 +344,19 @@ func TestBearerTokenPolicy_CAEChallengeHandling(t *testing.T) {
 			expectedClaims: "{",
 		},
 		{
-			desc:           "more parameters, different order",
-			challenge:      `Bearer realm="", authorization_uri="http://localhost", client_id="00000003-0000-0000-c000-000000000000", error="insufficient_claims", claims="ey=="`,
+			desc:           "reordered params",
+			challenge:      `Bearer realm="", claims="ey==", authorization_uri="http://localhost", client_id="...", error="insufficient_claims"`,
 			expectedClaims: "{",
-		},
-		{
-			desc:           "insufficient claims",
-			challenge:      `Bearer claims="ey==", authorization_uri="http://localhost", client_id="00000003-0000-0000-c000-000000000000", error="insufficient_claims"`,
-			expectedClaims: "{",
-		},
-		{
-			desc:           "standard",
-			challenge:      `Bearer realm="", authorization_uri="https://login.microsoftonline.com/common/oauth2/authorize", error="insufficient_claims", claims="eyJhY2Nlc3NfdG9rZW4iOnsibmJmIjp7ImVzc2VudGlhbCI6dHJ1ZSwidmFsdWUiOiIxNzI2MDc3NTk1In0sInhtc19jYWVlcnJvciI6eyJ2YWx1ZSI6IjEwMDEyIn19fQ=="`,
-			expectedClaims: `{"access_token":{"nbf":{"essential":true,"value":"1726077595"},"xms_caeerror":{"value":"10012"}}}`,
 		},
 		{
 			desc:           "multiple challenges",
-			challenge:      `PoP realm="", authorization_uri="https://login.microsoftonline.com/common/oauth2/authorize", client_id="00000003-0000-0000-c000-000000000000", nonce="ey==", Bearer realm="", authorization_uri="https://login.microsoftonline.com/common/oauth2/authorize", client_id="00000003-0000-0000-c000-000000000000", error_description="Continuous access evaluation resulted in challenge with result: InteractionRequired and code: TokenIssuedBeforeRevocationTimestamp", error="insufficient_claims", claims="eyJhY2Nlc3NfdG9rZW4iOnsibmJmIjp7ImVzc2VudGlhbCI6dHJ1ZSwgInZhbHVlIjoiMTcyNjI1ODEyMiJ9fX0="`,
+			challenge:      `PoP realm="", authorization_uri="http://localhost", client_id="...", nonce="ey==", Bearer realm="", error="insufficient_claims", authorization_uri="http://localhost", client_id="...", error_description="Continuous access evaluation resulted in challenge with result: InteractionRequired and code: TokenIssuedBeforeRevocationTimestamp", claims="eyJhY2Nlc3NfdG9rZW4iOnsibmJmIjp7ImVzc2VudGlhbCI6dHJ1ZSwgInZhbHVlIjoiMTcyNjI1ODEyMiJ9fX0="`,
 			expectedClaims: `{"access_token":{"nbf":{"essential":true, "value":"1726258122"}}}`,
+		},
+		{
+			desc:           "CAE+unparseable challenge",
+			challenge:      `Foo what=can't parse this, error=my bad, Bearer error="insufficient_claims", claims="ey=="`,
+			expectedClaims: "{",
 		},
 	} {
 		t.Run(test.desc, func(t *testing.T) {
