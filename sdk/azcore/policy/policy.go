@@ -168,13 +168,12 @@ type AuthorizationHandler struct {
 	// token from its credential according to its configuration.
 	OnRequest func(*Request, func(TokenRequestOptions) error) error
 
-	// TODO
-	// OnChallenge is called when the BearerTokenPolicy receives a 401 response, allowing the AuthorizationHandler to reauthorize
-	// the request according to an authentication challenge (the Response's WWW-Authenticate header). When nil, the policy
-	// provides a default implementation that handles Continuous Access Evaluation (CAE) challenges. OnChallenge is responsible
-	// for parsing challenge parameters. Its func argument authorizes the request with a token from the policy's credential
-	// using the given TokenRequestOptions. Implementations that perform I/O should honor the Request's context, available from
-	// Request.Raw().Context(). When OnChallenge returns nil, the policy will send the Request again.
+	// OnChallenge allows clients to implement custom HTTP authentication challenge handling. BearerTokenPolicy calls it upon
+	// receiving a 401 response containing multiple Bearer challenges or a challenge BearerTokenPolicy itself can't handle.
+	// OnChallenge is responsible for parsing challenge(s) (the Response's WWW-Authenticate header) and reauthorizing the
+	// Request accordingly. Its func argument authorizes the Request with a token from the policy's credential using the given
+	// TokenRequestOptions. OnChallenge should honor the Request's context, available from Request.Raw().Context(). When
+	// OnChallenge returns nil, the policy will send the Request again.
 	OnChallenge func(*Request, *http.Response, func(TokenRequestOptions) error) error
 }
 

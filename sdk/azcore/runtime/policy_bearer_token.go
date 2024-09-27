@@ -20,6 +20,9 @@ import (
 )
 
 // BearerTokenPolicy authorizes requests with bearer tokens acquired from a TokenCredential.
+// It handles [Continuous Access Evaluation] (CAE) challenges.
+//
+// [Continuous Access Evaluation]: https://learn.microsoft.com/entra/identity/conditional-access/concept-continuous-access-evaluation
 type BearerTokenPolicy struct {
 	// mainResource is the resource to be retreived using the tenant specified in the credential
 	mainResource *temporal.Resource[exported.AccessToken, acquiringResourceState]
@@ -116,8 +119,8 @@ func (b *BearerTokenPolicy) Do(req *policy.Request) (*http.Response, error) {
 			switch {
 			case b.authzHandler.OnChallenge != nil && (caeChallenge == nil || bearerChallenges > 1):
 				// client provided a challenge handler, and the response has no CAE challenge or
-				// has multiple Bearer challenges. This policy can't handle the first case and
-				// can't interpret the second, so it defers to the client's handler.
+				// has multiple Bearer challenges. This policy can't handle the first case or
+				// interpret the second, so it defers to the client's handler.
 				if err = b.authzHandler.OnChallenge(req, res, b.authenticateAndAuthorize(req)); err == nil {
 					if res, err = req.Next(); err == nil && res.StatusCode == http.StatusUnauthorized {
 						// Client handled the previous challenge but the server responded with another. If this
@@ -167,8 +170,8 @@ func checkHTTPSForAuth(req *policy.Request, allowHTTP bool) error {
 //   - a NonRetriableError, if Response includes a CAE challenge having invalid claims
 func parseCAEChallenge(res *http.Response) (*authChallenge, int, error) {
 	var (
-		count        int
 		caeChallenge *authChallenge
+		count        int
 		err          error
 	)
 	challenges, allParsed := parseChallenges(res)
