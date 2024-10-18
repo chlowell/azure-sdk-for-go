@@ -9,6 +9,7 @@ package cache
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -71,5 +72,47 @@ func TestNew(t *testing.T) {
 			}
 			require.Equal(t, 1, tries, "tryStorage was called more than once")
 		})
+	}
+}
+
+func TestTryStorageConcurrency(t *testing.T) {
+	onceBefore := once
+	storageBefore := storage
+	defer func() {
+		once = onceBefore
+		storage = storageBefore
+	}()
+	calls := 0
+	expected := 25
+	d := t.TempDir()
+	storage = func(s string) (accessor.Accessor, error) {
+		calls++
+		p := filepath.Join(d, s)
+		if _, err := os.ReadFile(p); err == nil {
+			return nil, errors.New("storage was called twice with the same argument")
+		}
+		return file.New(p)
+	}
+	wg := &sync.WaitGroup{}
+	ch := make(chan error, 1)
+	for i := 0; i < expected; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			once = &sync.Once{}
+			if _, err := New(&Options{Name: t.Name()}); err != nil {
+				select {
+				case ch <- err:
+				default:
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	select {
+	case err := <-ch:
+		t.Fatal(err)
+	default:
+		require.Equal(t, expected, calls)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math/rand"
 	"path/filepath"
 	"sync"
 	"time"
@@ -29,7 +30,9 @@ var (
 	// tryStorage tests the storage implementation by round-tripping data
 	tryStorage = func() {
 		const errFmt = "persistent storage isn't available due to error %q"
-		s, err := storage("azidentity-test-cache")
+		// random content prevents conflict with concurrent processes executing this function
+		name := fmt.Sprintf("azidentity-test%d", rand.Int()%1000)
+		s, err := storage(name)
 		if err != nil {
 			storageError = fmt.Errorf(errFmt, err)
 			return
@@ -48,7 +51,7 @@ var (
 			return
 		}
 		if !bytes.Equal(in, out) {
-			storageError = fmt.Errorf(errFmt, "read doesn't match write")
+			storageError = fmt.Errorf(errFmt, "reading or writing cache data failed")
 		}
 		err = s.Delete(ctx)
 		if err != nil {
