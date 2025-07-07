@@ -518,6 +518,74 @@ func TestBearerTokenPolicy_CAEChallengeHandling(t *testing.T) {
 		require.Equal(t, 2, tkReqs, "policy shouldn't handle a second CAE challenge for the same request")
 		require.Equal(t, 2, srv.Requests(), "policy shouldn't handle a second CAE challenge for the same request")
 	})
+
+	t.Run("unsatsified challenge", func(t *testing.T) {
+		srv, close := mock.NewTLSServer()
+		defer close()
+		expected := []byte("expected")
+		srv.SetResponse(
+			mock.WithBody(expected),
+			mock.WithHeader(shared.HeaderWWWAuthenticate, `Bearer error="insufficient_claims", claims="ey=="`),
+			mock.WithStatusCode(http.StatusUnauthorized),
+		)
+		getTokenCalled := false
+		authError := errorinfo.NonRetriableError(errors.New("authentication failed"))
+		cred := mockCredential{
+			getTokenImpl: func(context.Context, policy.TokenRequestOptions) (exported.AccessToken, error) {
+				if getTokenCalled {
+					return exported.AccessToken{}, authError
+				}
+				getTokenCalled = true
+				return exported.AccessToken{Token: tokenValue, ExpiresOn: time.Now().Add(time.Hour).UTC()}, nil
+			},
+		}
+		btp := NewBearerTokenPolicy(cred, []string{scope}, &policy.BearerTokenOptions{
+			AuthorizationHandler: policy.AuthorizationHandler{
+				OnChallenge: func(*policy.Request, *http.Response, func(policy.TokenRequestOptions) error) error {
+					t.Fatal("policy should handle a CAE challenge itself instead of calling the client's challenge handler")
+					return nil
+				},
+			},
+		})
+		pipeline := newTestPipeline(&policy.ClientOptions{PerRetryPolicies: []policy.Policy{btp}, Transport: srv})
+
+		req, err := NewRequest(context.Background(), http.MethodGet, srv.URL())
+		require.NoError(t, err)
+		_, err = pipeline.Do(req)
+
+		require.True(t, getTokenCalled)
+		require.ErrorIs(t, err, authError, "policy should return GetToken's error when the credential can't acquire a token having the claims")
+		var resErr *exported.ResponseError
+		require.ErrorAs(t, err, &resErr, "policy should return a ResponseError containing the service response when challenge handling fails")
+		res := resErr.RawResponse
+		require.Equal(t, http.StatusUnauthorized, res.StatusCode)
+		actual, err := Payload(res)
+		require.NoError(t, err)
+		require.Equal(t, expected, actual, "policy should return the service response when the credential can't acquire a token")
+	})
+}
+
+func TestBearerTokenPolicy_UnknownChallenge(t *testing.T) {
+	srv, close := mock.NewTLSServer()
+	defer close()
+	expected := []byte("expected")
+	srv.AppendResponse(
+		mock.WithBody(expected),
+		mock.WithHeader(shared.HeaderWWWAuthenticate, "..."),
+		mock.WithStatusCode(http.StatusUnauthorized),
+	)
+	b := NewBearerTokenPolicy(mockCredential{}, []string{scope}, nil)
+	pl := newTestPipeline(&policy.ClientOptions{PerRetryPolicies: []policy.Policy{b}, Transport: srv})
+	req, err := NewRequest(context.Background(), http.MethodGet, srv.URL())
+	require.NoError(t, err)
+
+	res, err := pl.Do(req)
+
+	require.NoError(t, err, "policy should return a response when it receives an unknown challenge")
+	require.Equal(t, http.StatusUnauthorized, res.StatusCode)
+	actual, err := Payload(res)
+	require.NoError(t, err)
+	require.Equal(t, expected, actual)
 }
 
 func TestBearerTokenPolicy_RequiresHTTPS(t *testing.T) {

@@ -175,6 +175,11 @@ func (b *BearerTokenPolicy) handleChallenge(req *policy.Request, res *http.Respo
 			}
 		}
 	}
+	if err != nil {
+		// ensure the application gets both the authN error and the RP response
+		resErr := exported.NewResponseError(res)
+		err = errors.Join(err, resErr)
+	}
 	return res, err
 }
 

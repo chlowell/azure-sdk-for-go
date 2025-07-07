@@ -1093,7 +1093,7 @@ func TestClaims(t *testing.T) {
 			if enableCAE {
 				name += " CAE"
 			}
-			t.Run(name, func(t *testing.T) {
+			t.Run("claims/"+name, func(t *testing.T) {
 				for k, v := range test.env {
 					t.Setenv(k, v)
 				}
@@ -1135,6 +1135,42 @@ func TestClaims(t *testing.T) {
 				if reqs != 2 {
 					t.Fatalf("expected %d token requests, got %d", 2, reqs)
 				}
+			})
+
+			t.Run("unsatisfied challenge/"+name, func(t *testing.T) {
+				for k, v := range test.env {
+					t.Setenv(k, v)
+				}
+				expected := []byte("expected")
+				gotToken := false
+				sts := mockSTS{
+					tokenRequestCallback: func(r *http.Request) *http.Response {
+						// return a token to the first request, an error to the second
+						var res *http.Response
+						if gotToken {
+							res = &http.Response{
+								Body:       io.NopCloser(bytes.NewReader(expected)),
+								StatusCode: http.StatusUnauthorized,
+							}
+						}
+						gotToken = true
+						return res
+					},
+				}
+				cred, err := test.ctor(azcore.ClientOptions{Transport: &sts})
+				require.NoError(t, err)
+				tro := policy.TokenRequestOptions{EnableCAE: true, Scopes: []string{"scope"}}
+				_, err = cred.GetToken(ctx, tro)
+				require.NoError(t, err)
+
+				tro.Claims = `{"claim":"value"}`
+				_, err = cred.GetToken(ctx, tro)
+				var afe *AuthenticationFailedError
+				require.ErrorAs(t, err, &afe)
+				require.NotNil(t, afe.RawResponse, "error should include the authN response")
+				actual, err := azruntime.Payload(afe.RawResponse)
+				require.NoError(t, err)
+				require.Equal(t, expected, actual, "error should include the authN response")
 			})
 		}
 	}
