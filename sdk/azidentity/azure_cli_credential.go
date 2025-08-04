@@ -95,6 +95,14 @@ func (c *AzureCLICredential) GetToken(ctx context.Context, opts policy.TokenRequ
 	if !validScope(opts.Scopes[0]) {
 		return at, fmt.Errorf("%s.GetToken(): invalid scope %q", credNameAzureCLI, opts.Scopes[0])
 	}
+	if opts.Claims != "" {
+		tenant := ""
+		if opts.TenantID != "" {
+			tenant = " --tenant " + opts.TenantID
+		}
+		cmd := fmt.Sprintf("az login --claims-challenge %s --scope %s", opts.Claims, opts.Scopes[0]) + tenant
+		return at, fmt.Errorf("%s.GetToken(): run %q", credNameAzureCLI, cmd)
+	}
 	tenant, err := resolveTenant(c.opts.TenantID, opts.TenantID, credNameAzureCLI, c.opts.AdditionallyAllowedTenants)
 	if err != nil {
 		return at, err
