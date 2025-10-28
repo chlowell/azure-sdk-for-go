@@ -214,21 +214,26 @@ func TestDefaultAzureCredential_TenantID(t *testing.T) {
 		for _, credName := range []string{credNameAzureCLI, credNameAzureDeveloperCLI} {
 			t.Run(fmt.Sprintf("%s_%s", credName, name), func(t *testing.T) {
 				called := false
-				shellExec = func(ctx context.Context, actualName string, command string) ([]byte, error) {
+				shellExec = func(ctx context.Context, actualName string, command []string) ([]byte, error) {
 					require.Equal(t, credName, actualName)
 					called = true
-					tenantArg := "--tenant"
+					flag := "--tenant"
 					success, err := mockAzSuccess(ctx, actualName, command)
 					if credName == credNameAzureDeveloperCLI {
-						tenantArg = "--tenant-id"
+						flag = "--tenant-id"
 						success, err = mockAzdSuccess(ctx, actualName, command)
 					}
-					sm := regexp.MustCompile(tenantArg + ` (\w+)`).FindStringSubmatch(command)
+					value := ""
+					for i := 0; i+1 < len(command); i++ {
+						if command[i] == flag {
+							value = command[i+1]
+							break
+						}
+					}
 					if override {
-						require.Equal(t, 2, len(sm), "tenant not found in command line")
-						require.Equal(t, expected, sm[1], "unexpected tenant in command line")
+						require.Equal(t, expected, value, "unexpected tenant in command line")
 					} else {
-						require.Empty(t, sm)
+						require.Empty(t, value)
 					}
 					return success, err
 				}
@@ -374,7 +379,7 @@ func (p *delayPolicy) Do(req *policy.Request) (resp *http.Response, err error) {
 func TestDefaultAzureCredential_IMDS(t *testing.T) {
 	before := shellExec
 	defer func() { shellExec = before }()
-	shellExec = func(context.Context, string, string) ([]byte, error) {
+	shellExec = func(context.Context, string, []string) ([]byte, error) {
 		return nil, NewCredentialUnavailableError("CLI credentials are disabled for this test")
 	}
 
@@ -548,11 +553,11 @@ func TestDefaultAzureCredential_UnsupportedMIClientID(t *testing.T) {
 	fail := true
 	before := shellExec
 	defer func() { shellExec = before }()
-	shellExec = func(ctx context.Context, credName string, commandLine string) ([]byte, error) {
+	shellExec = func(ctx context.Context, credName string, command []string) ([]byte, error) {
 		if fail {
 			return nil, errors.New("fail")
 		}
-		return mockAzSuccess(ctx, credName, commandLine)
+		return mockAzSuccess(ctx, credName, command)
 	}
 	t.Setenv(azureClientID, fakeClientID)
 	t.Setenv(msiEndpoint, fakeMIEndpoint)

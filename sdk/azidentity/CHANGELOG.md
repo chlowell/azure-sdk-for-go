@@ -7,6 +7,7 @@
 ### Breaking Changes
 
 ### Bugs Fixed
+- Fixed a Windows quoting bug preventing `AzureCLICredential` from honoring `AzureCLICredentialOptions.Subscription`
 
 ### Other Changes
 

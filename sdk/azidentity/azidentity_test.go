@@ -695,9 +695,17 @@ func TestAdditionallyAllowedTenants(t *testing.T) {
 				o := AzureCLICredentialOptions{
 					AdditionallyAllowedTenants: tc.allowed,
 					TenantID:                   tc.ctorTenant,
-					exec: func(ctx context.Context, credName string, commandLine string) ([]byte, error) {
-						require.Contains(t, commandLine, " --tenant "+tc.expected)
-						return mockAzSuccess(ctx, credName, commandLine)
+					exec: func(ctx context.Context, credName string, command []string) ([]byte, error) {
+						require.Contains(t, command, "--tenant")
+						found := false
+						for i := 0; i+1 < len(command); i++ {
+							if command[i] == "--tenant" && command[i+1] == tc.expected {
+								found = true
+								break
+							}
+						}
+						require.True(t, found)
+						return mockAzSuccess(ctx, credName, command)
 					},
 				}
 				return NewAzureCLICredential(&o)
@@ -710,13 +718,13 @@ func TestAdditionallyAllowedTenants(t *testing.T) {
 				o := AzurePowerShellCredentialOptions{
 					AdditionallyAllowedTenants: tc.allowed,
 					TenantID:                   tc.ctorTenant,
-					exec: func(ctx context.Context, credName string, commandLine string) ([]byte, error) {
-						splitCommand := strings.Split(commandLine, " ")
-						encodedScript := splitCommand[len(splitCommand)-1]
+					exec: func(ctx context.Context, credName string, command []string) ([]byte, error) {
+						require.NotEmpty(t, command)
+						encodedScript := command[len(command)-1]
 						decodedScript, err := base64DecodeUTF16LE(encodedScript)
 						require.NoError(t, err)
 						require.Contains(t, decodedScript, fmt.Sprintf("$params['TenantId'] = '%s'", tc.expected))
-						return mockAzurePowerShellSuccess(ctx, credName, commandLine)
+						return mockAzurePowerShellSuccess(ctx, credName, command)
 					},
 				}
 				return NewAzurePowerShellCredential(&o)
@@ -728,8 +736,15 @@ func TestAdditionallyAllowedTenants(t *testing.T) {
 			ctor: func(_ azcore.ClientOptions, tc testCase, t *testing.T) (azcore.TokenCredential, error) {
 				o := AzureDeveloperCLICredentialOptions{
 					AdditionallyAllowedTenants: tc.allowed,
-					exec: func(ctx context.Context, credName string, command string) ([]byte, error) {
-						require.Contains(t, command, " --tenant-id "+tc.expected)
+					exec: func(ctx context.Context, credName string, command []string) ([]byte, error) {
+						found := false
+						for i := 0; i+1 < len(command); i++ {
+							if command[i] == "--tenant-id" && command[i+1] == tc.expected {
+								found = true
+								break
+							}
+						}
+						require.True(t, found)
 						return mockAzdSuccess(ctx, credName, command)
 					},
 				}
@@ -824,10 +839,18 @@ func TestAdditionallyAllowedTenants(t *testing.T) {
 				})
 				for _, source := range c.chain.sources {
 					if c, ok := source.(*AzureCLICredential); ok {
-						c.opts.exec = func(ctx context.Context, credName string, commandLine string) ([]byte, error) {
+						c.opts.exec = func(ctx context.Context, credName string, command []string) ([]byte, error) {
 							called = true
-							require.Contains(t, commandLine, " --tenant "+tc.expected)
-							return mockAzSuccess(ctx, credName, commandLine)
+							require.Contains(t, command, "--tenant")
+							value := ""
+							for i := 0; i+1 < len(command); i++ {
+								if command[i] == "--tenant" {
+									value = command[i+1]
+									break
+								}
+							}
+							require.Equal(t, tc.expected, value)
+							return mockAzSuccess(ctx, credName, command)
 						}
 						break
 					}
@@ -859,13 +882,20 @@ func TestAdditionallyAllowedTenants(t *testing.T) {
 				for _, source := range c.chain.sources {
 					switch c := source.(type) {
 					case *AzureCLICredential:
-						c.opts.exec = func(context.Context, string, string) ([]byte, error) {
+						c.opts.exec = func(context.Context, string, []string) ([]byte, error) {
 							return nil, newCredentialUnavailableError(credNameAzureCLI, "...")
 						}
 					case *AzureDeveloperCLICredential:
-						c.opts.exec = func(ctx context.Context, credName string, command string) ([]byte, error) {
+						c.opts.exec = func(ctx context.Context, credName string, command []string) ([]byte, error) {
 							called = true
-							require.Contains(t, command, " --tenant-id "+tc.expected)
+							found := false
+							for i := 0; i+1 < len(command); i++ {
+								if command[i] == "--tenant-id" && command[i+1] == tc.expected {
+									found = true
+									break
+								}
+							}
+							require.True(t, found)
 							return mockAzdSuccess(ctx, credName, command)
 						}
 					}

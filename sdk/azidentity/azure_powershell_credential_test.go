@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -23,14 +22,14 @@ func azurePowerShellTokenOutput(expiresOn int64) []byte {
 }`, tokenValue, expiresOn))
 }
 
-func mockAzurePowerShellFailure(_ context.Context, credName string, _ string) ([]byte, error) {
+func mockAzurePowerShellFailure(_ context.Context, credName string, _ []string) ([]byte, error) {
 	if credName != credNameAzurePowerShell {
 		return nil, errors.New("unexpected credential name: " + credName)
 	}
 	return nil, newAuthenticationFailedError(credNameAzurePowerShell, "Azure PowerShell error", nil)
 }
 
-func mockAzurePowerShellSuccess(_ context.Context, credName string, _ string) ([]byte, error) {
+func mockAzurePowerShellSuccess(_ context.Context, credName string, _ []string) ([]byte, error) {
 	if credName != credNameAzurePowerShell {
 		return nil, errors.New("unexpected credential name: " + credName)
 	}
@@ -44,7 +43,7 @@ func TestAzurePowerShellCredential_Claims(t *testing.T) {
 		Claims: `{"access_token":{"xms_cc":{"values":["cp1"]}}}`,
 	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(tro.Claims))
-	exec := func(context.Context, string, string) ([]byte, error) {
+	exec := func(context.Context, string, []string) ([]byte, error) {
 		t.Fatal("GetToken shouldn't run Azure PowerShell when claims are specified")
 		return nil, nil
 	}
@@ -89,7 +88,7 @@ func TestAzurePowerShellCredential_Error(t *testing.T) {
 	authNs := 0
 	expected := newCredentialUnavailableError(credNameAzurePowerShell, "it didn't work")
 	o := AzurePowerShellCredentialOptions{
-		exec: func(context.Context, string, string) ([]byte, error) {
+		exec: func(context.Context, string, []string) ([]byte, error) {
 			authNs++
 			return nil, expected
 		},
@@ -113,7 +112,7 @@ func TestAzurePowerShellCredential_GetTokenSuccess(t *testing.T) {
 	ExpiresOn := expectedExpiresOn.UTC().Unix()
 	output := azurePowerShellTokenOutput(ExpiresOn)
 	cred, err := NewAzurePowerShellCredential(&AzurePowerShellCredentialOptions{
-		exec: func(context.Context, string, string) ([]byte, error) {
+		exec: func(context.Context, string, []string) ([]byte, error) {
 			return output, nil
 		},
 	})
@@ -144,10 +143,10 @@ func TestAzurePowerShellCredential_TenantID(t *testing.T) {
 	called := false
 	options := AzurePowerShellCredentialOptions{
 		TenantID: expected,
-		exec: func(ctx context.Context, credName, command string) ([]byte, error) {
+		exec: func(ctx context.Context, credName string, command []string) ([]byte, error) {
 			called = true
-			splitCommand := strings.Split(command, " ")
-			encodedScript := splitCommand[len(splitCommand)-1]
+			require.NotEmpty(t, command)
+			encodedScript := command[len(command)-1]
 			decodedScript, err := base64DecodeUTF16LE(encodedScript)
 			require.NoError(t, err)
 			require.Contains(t, decodedScript, fmt.Sprintf("$params['TenantId'] = '%s'", expected))

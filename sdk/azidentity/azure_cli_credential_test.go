@@ -39,14 +39,14 @@ func azTokenOutput(expiresOn string, expires_on int64) []byte {
 }`, tokenValue, expiresOn, e_o, fakeTenantID))
 }
 
-func mockAzFailure(_ context.Context, credName string, _ string) ([]byte, error) {
+func mockAzFailure(_ context.Context, credName string, _ []string) ([]byte, error) {
 	if credName != credNameAzureCLI {
 		return nil, errors.New("unexpected credential name: " + credName)
 	}
 	return nil, newAuthenticationFailedError(credNameAzureCLI, "az error", nil)
 }
 
-func mockAzSuccess(_ context.Context, credName string, _ string) ([]byte, error) {
+func mockAzSuccess(_ context.Context, credName string, _ []string) ([]byte, error) {
 	if credName != credNameAzureCLI {
 		return nil, errors.New("unexpected credential name: " + credName)
 	}
@@ -59,7 +59,7 @@ func TestAzureCLICredential_Claims(t *testing.T) {
 		Claims: `{"access_token":{"xms_cc":{"values":["cp1"]}}}`,
 	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(tro.Claims))
-	exec := func(context.Context, string, string) ([]byte, error) {
+	exec := func(context.Context, string, []string) ([]byte, error) {
 		t.Fatal("GetToken shouldn't run the CLI when claims are specified")
 		return nil, nil
 	}
@@ -104,7 +104,7 @@ func TestAzureCLICredential_Error(t *testing.T) {
 	authNs := 0
 	expected := newCredentialUnavailableError(credNameAzureCLI, "it didn't work")
 	o := AzureCLICredentialOptions{
-		exec: func(context.Context, string, string) ([]byte, error) {
+		exec: func(context.Context, string, []string) ([]byte, error) {
 			authNs++
 			return nil, expected
 		},
@@ -141,9 +141,9 @@ func TestAzureCLICredential_GetTokenSuccess(t *testing.T) {
 				expires_on = expectedExpiresOn.Unix()
 			}
 			cred, err := NewAzureCLICredential(&AzureCLICredentialOptions{
-				exec: func(_ context.Context, credName, command string) ([]byte, error) {
+				exec: func(_ context.Context, credName string, command []string) ([]byte, error) {
 					require.Equal(t, credNameAzureCLI, credName)
-					expected := "az account get-access-token -o json --resource " + strings.TrimSuffix(liveTestScope, "/.default")
+					expected := []string{"az", "account", "get-access-token", "-o", "json", "--resource", strings.TrimSuffix(liveTestScope, "/.default")}
 					require.Equal(t, expected, command)
 					output := azTokenOutput(ExpiresOn, expires_on)
 					return output, nil
@@ -174,17 +174,28 @@ func TestAzureCLICredential_GetTokenInvalidToken(t *testing.T) {
 }
 
 func TestAzureCLICredential_Subscription(t *testing.T) {
-	called := false
 	for _, want := range []string{"", "expected-subscription"} {
 		t.Run(fmt.Sprintf("subscription=%q", want), func(t *testing.T) {
+			called := false
 			options := AzureCLICredentialOptions{
 				Subscription: want,
-				exec: func(ctx context.Context, credName, command string) ([]byte, error) {
+				exec: func(ctx context.Context, credName string, command []string) ([]byte, error) {
 					called = true
 					if want == "" {
 						require.NotContains(t, command, "--subscription")
 					} else {
-						require.Contains(t, command, fmt.Sprintf(" --subscription %q", want))
+						require.Contains(t, command, "--subscription")
+						require.Contains(t, command, want)
+						idx := -1
+						for i, arg := range command {
+							if arg == "--subscription" {
+								idx = i
+								break
+							}
+						}
+						require.NotEqual(t, -1, idx)
+						require.Greater(t, len(command), idx+1)
+						require.Equal(t, want, command[idx+1])
 					}
 					return mockAzSuccess(ctx, credName, command)
 				},
@@ -209,9 +220,19 @@ func TestAzureCLICredential_TenantID(t *testing.T) {
 	called := false
 	options := AzureCLICredentialOptions{
 		TenantID: expected,
-		exec: func(ctx context.Context, credName, command string) ([]byte, error) {
+		exec: func(ctx context.Context, credName string, command []string) ([]byte, error) {
 			called = true
-			require.Contains(t, command, " --tenant "+expected)
+			require.Contains(t, command, "--tenant")
+			idx := -1
+			for i, arg := range command {
+				if arg == "--tenant" {
+					idx = i
+					break
+				}
+			}
+			require.NotEqual(t, -1, idx)
+			require.Greater(t, len(command), idx+1)
+			require.Equal(t, expected, command[idx+1])
 			return mockAzSuccess(ctx, credName, command)
 		},
 	}

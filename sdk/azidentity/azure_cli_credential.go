@@ -91,15 +91,14 @@ func (c *AzureCLICredential) GetToken(ctx context.Context, opts policy.TokenRequ
 	}
 	// pass the CLI a Microsoft Entra ID v1 resource because we don't know which CLI version is installed and older ones don't support v2 scopes
 	resource := strings.TrimSuffix(opts.Scopes[0], defaultSuffix)
-	command := "az account get-access-token -o json --resource " + resource
+	command := []string{"az", "account", "get-access-token", "-o", "json", "--resource", resource}
 	tenantArg := ""
 	if tenant != "" {
 		tenantArg = " --tenant " + tenant
-		command += tenantArg
+		command = append(command, "--tenant", tenant)
 	}
 	if c.opts.Subscription != "" {
-		// subscription needs quotes because it may contain spaces
-		command += ` --subscription "` + c.opts.Subscription + `"`
+		command = append(command, "--subscription", c.opts.Subscription)
 	}
 	if opts.Claims != "" {
 		encoded := base64.StdEncoding.EncodeToString([]byte(opts.Claims))

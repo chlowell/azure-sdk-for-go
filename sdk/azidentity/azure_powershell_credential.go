@@ -168,7 +168,7 @@ return $jsonToken
 		}
 	}
 
-	command := exe + " -NoProfile -NonInteractive -OutputFormat Text -EncodedCommand " + base64EncodeUTF16LE(script)
+	command := []string{exe, "-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-EncodedCommand", base64EncodeUTF16LE(script)}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()

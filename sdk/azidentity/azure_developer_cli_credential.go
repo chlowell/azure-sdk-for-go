@@ -73,30 +73,38 @@ func (c *AzureDeveloperCLICredential) GetToken(ctx context.Context, opts policy.
 	if len(opts.Scopes) == 0 {
 		return at, errors.New(credNameAzureDeveloperCLI + ": GetToken() requires at least one scope")
 	}
-	command := "azd auth token -o json --no-prompt"
+	commandArgs := []string{"azd", "auth", "token", "-o", "json", "--no-prompt"}
+	var commandBuilder strings.Builder
+	commandBuilder.WriteString("azd auth token -o json --no-prompt")
 	for _, scope := range opts.Scopes {
 		if !validScope(scope) {
 			return at, fmt.Errorf("%s.GetToken(): invalid scope %q", credNameAzureDeveloperCLI, scope)
 		}
-		command += " --scope " + scope
+		commandArgs = append(commandArgs, "--scope", scope)
+		commandBuilder.WriteString(" --scope ")
+		commandBuilder.WriteString(scope)
 	}
 	tenant, err := resolveTenant(c.opts.TenantID, opts.TenantID, credNameAzureDeveloperCLI, c.opts.AdditionallyAllowedTenants)
 	if err != nil {
 		return at, err
 	}
 	if tenant != "" {
-		command += " --tenant-id " + tenant
+		commandArgs = append(commandArgs, "--tenant-id", tenant)
+		commandBuilder.WriteString(" --tenant-id ")
+		commandBuilder.WriteString(tenant)
 	}
-	commandNoClaims := command
+	commandNoClaims := commandBuilder.String()
 	if opts.Claims != "" {
 		encoded := base64.StdEncoding.EncodeToString([]byte(opts.Claims))
-		command += " --claims " + encoded
+		commandArgs = append(commandArgs, "--claims", encoded)
+		commandBuilder.WriteString(" --claims ")
+		commandBuilder.WriteString(encoded)
 	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	b, err := c.opts.exec(ctx, credNameAzureDeveloperCLI, command)
+	b, err := c.opts.exec(ctx, credNameAzureDeveloperCLI, commandArgs)
 	if err == nil {
 		at, err = c.createAccessToken(b)
 	}

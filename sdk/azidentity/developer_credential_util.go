@@ -21,25 +21,26 @@ import (
 const cliTimeout = 10 * time.Second
 
 // executor runs a command and returns its output or an error
-type executor func(ctx context.Context, credName, command string) ([]byte, error)
+type executor func(ctx context.Context, credName string, command []string) ([]byte, error)
 
-var shellExec = func(ctx context.Context, credName, command string) ([]byte, error) {
+var shellExec = func(ctx context.Context, credName string, command []string) ([]byte, error) {
+	if len(command) == 0 {
+		return nil, newCredentialUnavailableError(credName, "no command specified")
+	}
 	// set a default timeout for this authentication iff the caller hasn't done so already
 	var cancel context.CancelFunc
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		ctx, cancel = context.WithTimeout(ctx, cliTimeout)
 		defer cancel()
 	}
-	var cmd *exec.Cmd
+	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	if runtime.GOOS == "windows" {
 		dir := os.Getenv("SYSTEMROOT")
 		if dir == "" {
 			return nil, newCredentialUnavailableError(credName, `environment variable "SYSTEMROOT" has no value`)
 		}
-		cmd = exec.CommandContext(ctx, "cmd.exe", "/c", command)
 		cmd.Dir = dir
 	} else {
-		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", command)
 		cmd.Dir = "/bin"
 	}
 	cmd.Env = os.Environ()

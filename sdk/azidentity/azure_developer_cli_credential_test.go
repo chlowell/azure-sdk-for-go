@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	mockAzdSuccess = func(_ context.Context, credName string, _ string) ([]byte, error) {
+	mockAzdSuccess = func(_ context.Context, credName string, _ []string) ([]byte, error) {
 		if credName != credNameAzureDeveloperCLI {
 			return nil, errors.New("unexpected credential name: " + credName)
 		}
@@ -28,7 +28,7 @@ var (
 }
 `), nil
 	}
-	mockAzdFailure = func(_ context.Context, credName string, _ string) ([]byte, error) {
+	mockAzdFailure = func(_ context.Context, credName string, _ []string) ([]byte, error) {
 		if credName != credNameAzureDeveloperCLI {
 			return nil, errors.New("unexpected credential name: " + credName)
 		}
@@ -44,8 +44,15 @@ func TestAzureDeveloperCLICredential_Claims(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString([]byte(tro.Claims))
 	t.Run("old azd", func(t *testing.T) {
 		cred, err := NewAzureDeveloperCLICredential(&AzureDeveloperCLICredentialOptions{
-			exec: func(_ context.Context, _, command string) ([]byte, error) {
-				require.Contains(t, command, "--claims "+encoded)
+			exec: func(_ context.Context, _ string, command []string) ([]byte, error) {
+				found := false
+				for i := 0; i+1 < len(command); i++ {
+					if command[i] == "--claims" && command[i+1] == encoded {
+						found = true
+						break
+					}
+				}
+				require.True(t, found)
 				return nil, newAuthenticationFailedError(credNameAzureDeveloperCLI, "unknown flag: --claims", nil)
 			},
 		})
@@ -57,8 +64,15 @@ func TestAzureDeveloperCLICredential_Claims(t *testing.T) {
 
 	t.Run("recent azd", func(t *testing.T) {
 		cred, err := NewAzureDeveloperCLICredential(&AzureDeveloperCLICredentialOptions{
-			exec: func(_ context.Context, _, command string) ([]byte, error) {
-				require.Contains(t, command, "--claims "+encoded)
+			exec: func(_ context.Context, _ string, command []string) ([]byte, error) {
+				found := false
+				for i := 0; i+1 < len(command); i++ {
+					if command[i] == "--claims" && command[i+1] == encoded {
+						found = true
+						break
+					}
+				}
+				require.True(t, found)
 				return nil, newAuthenticationFailedError(credNameAzureDeveloperCLI, `{"type":"consoleMessage","timestamp":"...","data":{"message":"\nERROR: fetching token: AADSTS50079: Due to a configuration change made by your administrator, or because you moved to a new location, you must enroll in multi-factor authentication'. Trace ID: ... Correlation ID: ... Timestamp: ...\n"}}
 {"type":"consoleMessage","timestamp":"...","data":{"message":"Suggestion: reauthentication required, run azd auth login --scope ... to acquire a new token.\n"}}`, nil)
 			},
@@ -90,7 +104,7 @@ func TestAzureDeveloperCLICredential_Error(t *testing.T) {
 	authNs := 0
 	expected := newCredentialUnavailableError(credNameAzureDeveloperCLI, "it didn't work")
 	o := AzureDeveloperCLICredentialOptions{
-		exec: func(context.Context, string, string) ([]byte, error) {
+		exec: func(context.Context, string, []string) ([]byte, error) {
 			authNs++
 			return nil, expected
 		},
@@ -113,8 +127,8 @@ func TestAzureDeveloperCLICredential_Error(t *testing.T) {
 
 func TestAzureDeveloperCLICredential_GetTokenSuccess(t *testing.T) {
 	cred, err := NewAzureDeveloperCLICredential(&AzureDeveloperCLICredentialOptions{
-		exec: func(ctx context.Context, credName, command string) ([]byte, error) {
-			require.Equal(t, command, "azd auth token -o json --no-prompt --scope "+liveTestScope)
+		exec: func(ctx context.Context, credName string, command []string) ([]byte, error) {
+			require.Equal(t, []string{"azd", "auth", "token", "-o", "json", "--no-prompt", "--scope", liveTestScope}, command)
 			return mockAzdSuccess(ctx, credName, command)
 		},
 	})
@@ -152,9 +166,16 @@ func TestAzureDeveloperCLICredential_TenantID(t *testing.T) {
 	called := false
 	options := AzureDeveloperCLICredentialOptions{
 		TenantID: expected,
-		exec: func(ctx context.Context, credName, command string) ([]byte, error) {
+		exec: func(ctx context.Context, credName string, command []string) ([]byte, error) {
 			called = true
-			require.Contains(t, command, " --tenant-id "+expected)
+			found := false
+			for i := 0; i+1 < len(command); i++ {
+				if command[i] == "--tenant-id" && command[i+1] == expected {
+					found = true
+					break
+				}
+			}
+			require.True(t, found)
 			return mockAzdSuccess(ctx, credName, command)
 		},
 	}
